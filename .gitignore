@@ -1,0 +1,36 @@
+# Audio dataset files
+audio_dataset/
+audio_dataset/*
+
+# Description files  
+descriptions/
+descriptions/*
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Model checkpoints
+checkpoints/
+*.pt
+*.pth
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
