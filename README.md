@@ -15,86 +15,75 @@ This project aims to develop an **AI model that automatically generates audio ef
 3. **Cross-Attention Multimodal Fusion**: Sophisticated bidirectional attention between text and audio embeddings for richer understanding
 4. **Parallel Decoder Architecture**: Parallel prediction of each effect (EQ, Reverb, Distortion, Pitch) with enhanced backbone features
 
-## � Quick Start with Docker (Recommended)
+## 🐳 Quick Start with Docker (Recommended)
 
 ### Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (1.29+)
-- For GPU support: [NVIDIA Docker](https://github.com/NVIDIA/nvidia-docker) (optional but recommended)
+- For GPU support: [NVIDIA Docker](https://github.com/NVIDIA/nvidia-docker) (recommended for training)
 
-### 🚀 One-Command Setup
+### 🚀 Complete Setup Guide
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/HojoonKi/audiomanipulator.git
 cd audiomanipulator
 
-# 2. Build and start the container
-docker-compose up -d
+# 2. Build and start container in background
+docker-compose up -d --build
 
-# 3. Enter the interactive container
+# 3. Verify container is running
+docker-compose ps
+
+# 4. Enter the container for interactive use
+docker-compose exec audiomanipulator bash
+```
+
+### 🎯 Using the Container
+
+Once the container is built and running, enter it and use the tools directly:
+
+```bash
+# Enter the container
 docker-compose exec audiomanipulator bash
 
-# 4. Test the model (inside container)
-python test.py \
-    --input_audio audio_examples/test.wav \
-    --text_prompt "add warm reverb and make it sound spacious"
+# Now you're inside the container - run any commands you need:
+python test.py --help     # See test options
+python train.py --help    # See training options
+ls audio_dataset/         # Browse available audio files
+nvidia-smi               # Check GPU status
 ```
 
-### 🎛️ Docker Service Options
+That's it! From here, you can run training, testing, or any other commands directly inside the container environment.
 
-#### Basic Usage (CPU/GPU)
+### 🎛️ Container Management
+
 ```bash
-# Start main service
-docker-compose up -d audiomanipulator
-
-# Enter interactive shell
-docker-compose exec audiomanipulator bash
-
-# View logs
-docker-compose logs -f audiomanipulator
-
-# Stop services
-docker-compose down
+# Essential commands
+docker-compose up -d --build     # Build and start container
+docker-compose exec audiomanipulator bash  # Enter container  
+docker-compose ps                # Check running status
+docker-compose logs -f           # View container logs
+docker-compose restart           # Restart container
+docker-compose down             # Stop and remove container
 ```
 
-#### Training Mode (GPU Recommended)
+### 🔧 GPU Support (Already Configured)
+
+The container is pre-configured with GPU support. Once inside the container, verify it's working:
+
 ```bash
-# Uncomment GPU settings in docker-compose.yml first
-# Then start training service
-docker-compose --profile training up audiomanipulator-train
+# Check CUDA availability (run inside container)
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
 
-# Monitor training progress
-docker-compose logs -f audiomanipulator-train
+# Check GPU memory (run inside container)
+nvidia-smi
 ```
 
-#### Development Mode with Jupyter
-```bash
-# Start Jupyter notebook service
-docker-compose --profile notebook up -d audiomanipulator-notebook
-
-# Access notebook at http://localhost:8888
-# (No token required in this setup)
-```
-
-### 🔧 GPU Support Setup
-
-For NVIDIA GPU support, uncomment the GPU-related lines in `docker-compose.yml`:
-
-```yaml
-# Uncomment these lines:
-runtime: nvidia
-environment:
-  - NVIDIA_VISIBLE_DEVICES=all
-```
-
-Then verify GPU access:
-```bash
-docker-compose exec audiomanipulator nvidia-smi
-docker-compose exec audiomanipulator python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
-```
+**Note**: GPU support is already enabled in `docker-compose.yml`. If you don't have an NVIDIA GPU, the container will automatically fall back to CPU mode.
 
 ## 🛠️ Alternative Installation Methods
+
 
 <details>
 <summary>📋 Native Installation (Click to expand)</summary>
@@ -150,20 +139,15 @@ pip install -r requirements.txt
 
 ```bash
 # 🚀 Essential Commands
-docker-compose up -d                    # Start all services
+docker-compose up -d --build           # Build and start container in background
 docker-compose exec audiomanipulator bash  # Enter container
-docker-compose logs -f audiomanipulator    # View logs
-docker-compose down                      # Stop all services
+docker-compose ps                      # Check running status
+docker-compose logs -f                 # View logs
+docker-compose down                    # Stop and remove container
 
-# 🎯 Service-Specific
-docker-compose --profile training up    # Training mode
-docker-compose --profile notebook up -d # Jupyter notebook
-docker-compose restart audiomanipulator # Restart main service
-
-# 🔍 Debug Commands
-docker-compose ps                       # Check running services
-docker-compose exec audiomanipulator nvidia-smi  # Check GPU
-docker system prune -f                 # Clean up (careful!)
+# 🔍 Debug & Monitoring Commands
+docker-compose restart                 # Restart container
+docker system prune -f                # Clean up (careful!)
 ```
 
 ### Model Parameters & Effects
@@ -205,7 +189,7 @@ export WANDB_CACHE_DIR=/app/cache/wandb # Weights & Biases cache
 ### Training Process
 
 ```bash
-# In Docker container
+# Inside Docker container, run training with desired parameters
 python train.py \
     --batch_size 32 \
     --learning_rate 1e-4 \
@@ -454,15 +438,17 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ### Basic Usage
 
+Once inside the Docker container, you can test the model directly:
+
 ```bash
 # Basic test (automatically loads latest checkpoint)
 python test.py \
-    --input_audio /path/to/audio.wav \
+    --input_audio ./audio_dataset/instrumentals/flute/852.wav \
     --text_prompt "add warm reverb and make it sound spacious"
 
 # Specific effect requests
 python test.py \
-    --input_audio ./audio_dataset/instrumentals/flute/852.wav \
+    --input_audio ./audio_dataset/instrumentals/Piano/1234.wav \
     --text_prompt "vintage analog warmth with tape saturation"
 ```
 
@@ -477,19 +463,19 @@ python test.py \
 
 # Specify output path
 python test.py \
-    --input_audio ./audio_dataset/speech/sample.wav \
+    --input_audio ./audio_dataset/instrumentals/Violin/sample.wav \
     --text_prompt "add studio quality compression" \
-    --output_path ./my_results/compressed_audio.wav
+    --output_path ./output/my_results/compressed_audio.wav
 
 # Limit audio length (default: maintain original length)
 python test.py \
-    --input_audio ./long_audio.wav \
+    --input_audio ./audio_dataset/instrumentals/Guitar/long_audio.wav \
     --text_prompt "deep space reverb" \
     --audio_length 10.0
 
-# Run on CPU
+# Run on CPU (if GPU not available)
 python test.py \
-    --input_audio ./audio.wav \
+    --input_audio ./audio_dataset/instrumentals/flute/852.wav \
     --text_prompt "lo-fi vintage sound" \
     --device cpu
 ```
@@ -510,7 +496,7 @@ python test.py \
 
 #### Environment/Spatial Effects
 ```bash
-# Add spatial feel
+# Add spatial feel (inside container)
 python test.py --input_audio audio.wav --text_prompt "make it sound like it's in a cathedral"
 python test.py --input_audio audio.wav --text_prompt "intimate bedroom recording"
 python test.py --input_audio audio.wav --text_prompt "wide stereo field with ambient space"
@@ -523,7 +509,7 @@ python test.py --input_audio audio.wav --text_prompt "outdoor natural reverb"
 
 #### Tone/Timbre Changes
 ```bash
-# Vintage/analog sound
+# Vintage/analog sound (inside container)
 python test.py --input_audio audio.wav --text_prompt "warm analog tape saturation"
 python test.py --input_audio audio.wav --text_prompt "vintage 1970s sound"
 python test.py --input_audio audio.wav --text_prompt "tube amplifier warmth"
@@ -536,7 +522,7 @@ python test.py --input_audio audio.wav --text_prompt "professional studio sound"
 
 #### Frequency/EQ Adjustment
 ```bash
-# Brightness control
+# Brightness control (inside container)
 python test.py --input_audio audio.wav --text_prompt "brighter with crisp highs"
 python test.py --input_audio audio.wav --text_prompt "warm and mellow"
 python test.py --input_audio audio.wav --text_prompt "bass-heavy and punchy"
@@ -548,7 +534,7 @@ python test.py --input_audio audio.wav --text_prompt "boost midrange clarity"
 
 #### Dynamics/Compression
 ```bash
-# Compression effects
+# Compression effects (inside container)
 python test.py --input_audio audio.wav --text_prompt "gentle compression for smoothness"
 python test.py --input_audio audio.wav --text_prompt "heavy compression for punch"
 python test.py --input_audio audio.wav --text_prompt "vintage opto compressor sound"
