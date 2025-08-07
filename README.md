@@ -256,29 +256,26 @@ output/
     "decoder_type": "parallel"
   },
   "preset_parameters": {
-    "equalizer": {
-      "band_1": {"center_freq": 100, "gain_db": 2.5, "q": 0.7, "filter_type": "high_pass"},
-      "band_2": {"center_freq": 500, "gain_db": -1.2, "q": 1.4, "filter_type": "bell"},
-      "band_3": {"center_freq": 2000, "gain_db": 0.8, "q": 2.1, "filter_type": "bell"},
-      "band_4": {"center_freq": 8000, "gain_db": -0.5, "q": 1.8, "filter_type": "bell"},
-      "band_5": {"center_freq": 15000, "gain_db": -2.0, "q": 0.9, "filter_type": "low_pass"}
-    },
+    "equalizer": [
+      {"center_freq": 100, "gain_db": 2.5, "q": 0.7, "filter_type": "high_pass"},
+      {"center_freq": 500, "gain_db": -1.2, "q": 1.4, "filter_type": "bell"},
+      {"center_freq": 2000, "gain_db": 0.8, "q": 2.1, "filter_type": "bell"},
+      {"center_freq": 8000, "gain_db": -0.5, "q": 1.8, "filter_type": "bell"},
+      {"center_freq": 15000, "gain_db": -2.0, "q": 0.9, "filter_type": "low_pass"}
+    ],
     "reverb": {
       "room_size": 0.3,
       "pre_delay": 15.2,
       "diffusion": 0.7,
       "damping": 0.4,
       "wet_gain": 0.2,
-      "dry_gain": 0.8
     },
     "distortion": {
       "gain": 3.2,
       "color": 0.1,
     },
     "pitch": {
-      "pitch_shift": 1.0,
-      "formant_shift": 1.0,
-      "mix": 0.0
+      "pitch": 1.0,
     }
   }
 }

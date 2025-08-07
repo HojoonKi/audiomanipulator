@@ -354,58 +354,6 @@ class TrainingManager:
             except:
                 return torch.tensor(1.0, device=self.device, requires_grad=True)
     
-    def train_with_guide_preset(self, description, audio, guide_preset):
-        """Guide preset을 사용한 개별 item 훈련"""
-        try:
-            # Guide preset이 빈 딕셔너리인 경우 건너뛰기
-            if not guide_preset or not isinstance(guide_preset, dict):
-                # gradient가 있는 더미 loss 생성
-                dummy_param = next(self.model.parameters())
-                return torch.mean(dummy_param * 0.0) + 0.01
-            
-            # 모델 forward pass로 예측된 파라미터 얻기
-            self.model.train()
-            outputs = self.model(
-                texts=[description],
-                audio=audio,
-                use_real_audio=False
-            )
-            
-            if 'preset_params' not in outputs:
-                # Preset params가 없으면 CLAP loss로 대체
-                processed_audio = outputs.get('processed_audio', audio)
-                return self.compute_clap_loss(processed_audio, description)
-            
-            # 예측된 파라미터와 guide preset 간의 MSE loss
-            predicted_params = outputs['preset_params']
-            guide_loss = self.compute_guide_loss(predicted_params, guide_preset)
-            
-            # Guide preset으로 실제 오디오 처리해서 CLAP loss도 추가
-            try:
-                # Guide preset 파라미터로 오디오 처리 (만약 가능하다면)
-                if 'processed_audio' in outputs:
-                    processed_with_guide = outputs['processed_audio']
-                    clap_loss = self.compute_clap_loss(processed_with_guide, description)
-                    
-                    # Guide loss (파라미터 매칭) + CLAP loss (결과 품질)
-                    total_loss = self.args.guide_weight * guide_loss + (1 - self.args.guide_weight) * clap_loss
-                    return total_loss
-                else:
-                    return guide_loss
-                    
-            except Exception:
-                # Guide loss만 사용
-                return guide_loss
-            
-        except Exception as e:
-            print(f"❌ Guide preset 훈련 실패: {e}")
-            # gradient가 있는 더미 loss 생성
-            try:
-                dummy_param = next(self.model.parameters())
-                fallback_loss = torch.mean(dummy_param * 0.0) + 0.1
-                return fallback_loss
-            except:
-                return torch.tensor(0.1, device=self.device, requires_grad=True)
     
     def train_epoch(self, train_loader, epoch):
         """한 에포크 훈련 - Pure Description Training Only"""
@@ -577,52 +525,125 @@ class TrainingManager:
                 print(f"❌ Guide loss 실패: {e}")
             return self.create_dummy_loss()
     
-    def extract_guide_values(self, guide_preset):
-        """Guide preset에서 28개 값 간단 추출"""
+    def compute_batch_guide_loss(self, batch_generated_preset, batch_guide_presets):
+        """배치 단위 Guide Loss 계산 - 사전 검증된 preset 사용"""
         try:
-            if not guide_preset or not isinstance(guide_preset, dict):
-                return None
-            
-            values = []
-            
-            # EQ (20개): frequency, gain, q, filter_type × 5
-            if 'eq' in guide_preset:
-                for i in range(5):
-                    band = guide_preset['eq'].get(f'band_{i}', {})
-                    values.extend([
-                        band.get('frequency', 1000.0),
-                        band.get('gain', 0.0), 
-                        band.get('q', 1.0),
-                        band.get('filter_type', 1.0)
-                    ])
+            # 배치 단위로 _raw_params 추출
+            if isinstance(batch_generated_preset, dict) and "_raw_params" in batch_generated_preset:
+                generated_batch_tensor = batch_generated_preset["_raw_params"].to(self.device)
+                # generated_batch_tensor: [batch_size, 28] 또는 [batch_size, 1, 28]
+                
+                if generated_batch_tensor.dim() == 3:
+                    generated_batch_tensor = generated_batch_tensor.squeeze(1)  # [batch_size, 28]
+                
+                # 🔥 간소화: 모든 preset이 이미 검증됨, 직접 변환
+                batch_guide_values = []
+                
+                for guide_preset in batch_guide_presets:
+                    guide_values = self.extract_guide_values(guide_preset)
+                    batch_guide_values.append(guide_values)
+                
+                # Guide values를 배치 텐서로 스택
+                guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(self.device)  # [batch_size, 28]
+                
+                # 배치 MSE loss 계산
+                batch_mse_loss = nn.MSELoss()(generated_batch_tensor, guide_batch_tensor)
+                
+                # 첫 번째 배치 디버깅
+                if self.rank == 0 and hasattr(self, '_first_guide_loss'):
+                    print(f"📊 Batch Guide Loss: {batch_mse_loss.item():.6f}")
+                    print(f"   Generated Batch: {generated_batch_tensor.shape} [{generated_batch_tensor.min():.3f}, {generated_batch_tensor.max():.3f}]")
+                    print(f"   Guide Batch: {guide_batch_tensor.shape} [{guide_batch_tensor.min():.3f}, {guide_batch_tensor.max():.3f}]")
+                    print(f"   All presets pre-validated ✅")
+                    del self._first_guide_loss
+                
+                return batch_mse_loss
+                
             else:
-                values.extend([1000.0, 0.0, 1.0, 1.0] * 5)
+                
+                if self.rank == 0:
+                    print(f"⚠️ 배치에서 _raw_params 없음")
+                return self.create_dummy_loss()
+                
+        except Exception as e:
+            if self.rank == 0:
+                print(f"❌ Batch guide loss 실패: {e}")
+            return self.create_dummy_loss()
+    
+    def fallback_individual_guide_processing(self, descriptions, audios, guide_presets):
+        """배치 처리 실패시 개별 처리 fallback - 사전 검증된 preset 사용"""
+        try:
+            total_loss = 0.0
             
-            # Reverb (5개)
-            reverb = guide_preset.get('reverb', {})
+            for desc, audio, guide_preset in zip(descriptions, audios, guide_presets):
+                try:
+                    single_audio = audio.unsqueeze(0)  # [1, channels, samples]
+                    
+                    outputs = self.model(
+                        texts=[desc],
+                        audio=single_audio,
+                        use_real_audio=False
+                    )
+                    
+                    if 'preset_params' not in outputs:
+                        continue
+                        
+                    predicted_params = outputs['preset_params']
+                    guide_loss = self.compute_guide_loss(predicted_params, guide_preset)
+                    
+                    # 사전 검증된 preset이므로 간단한 검증만
+                    if guide_loss.requires_grad:
+                        total_loss += guide_loss
+                        
+                except Exception:
+                    continue
+            
+            # 모든 preset이 유효하므로 valid_items = len(guide_presets)
+            return total_loss / len(guide_presets) if len(guide_presets) > 0 else self.create_dummy_loss()
+            
+        except Exception as e:
+            if self.rank == 0:
+                print(f"❌ Fallback 처리 실패: {e}")
+            return self.create_dummy_loss()
+    
+    def extract_guide_values(self, guide_preset):
+        """Guide preset에서 28개 값 추출 - 사전 검증된 preset 사용"""
+        # 데이터셋에서 이미 검증됨 - 바로 값 추출
+        values = []
+        
+        # EQ (20개): center_freq, gain_db, q, filter_type × 5
+        eq_section = guide_preset['eq']
+        for i in range(1, 6):  # band_1 ~ band_5
+            band = eq_section[f'band_{i}']
             values.extend([
-                reverb.get('room_size', 5.0),
-                reverb.get('pre_delay', 20.0), 
-                reverb.get('diffusion', 0.7),
-                reverb.get('damping', 0.5),
-                reverb.get('wet_gain', 0.3)
+                band['center_freq'],
+                band['gain_db'], 
+                band['q'],
+                band['filter_type']
             ])
-            
-            # Distortion (2개)
-            dist = guide_preset.get('distortion', {})
-            values.extend([
-                dist.get('gain', 10.0),
-                dist.get('color', 0.6)
-            ])
-            
-            # Pitch (1개)
-            pitch = guide_preset.get('pitch', {})
-            values.append(pitch.get('scale', 1.0))
-            
-            return values if len(values) == 28 else None
-            
-        except Exception:
-            return None
+        
+        # Reverb (5개)
+        reverb = guide_preset['reverb']
+        values.extend([
+            reverb['room_size'],
+            reverb['pre_delay'], 
+            reverb['diffusion'],
+            reverb['damping'],
+            reverb['wet_gain']
+        ])
+        
+        # Distortion (2개)
+        dist = guide_preset['distortion']
+        values.extend([
+            dist['gain'],
+            dist['color']
+        ])
+        
+        # Pitch (1개)
+        pitch = guide_preset['pitch']
+        values.append(pitch['scale'])
+        
+        return values  # 28개 값 보장됨
     
     def create_dummy_loss(self):
         """간단한 더미 loss"""
@@ -877,7 +898,7 @@ class TrainingManager:
             self.optimizer = original_optimizer
 
     def pretrain_epoch(self, train_loader, epoch):
-        """사전 훈련 전용 에포크 - Guide Preset 파라미터 매칭만"""
+        """사전 훈련 전용 에포크 - Guide Preset 파라미터 매칭만 (배치 최적화)"""
         self.model.train()
         total_loss = 0.0
         
@@ -902,73 +923,81 @@ class TrainingManager:
                 if audios.dim() == 2:
                     audios = audios.unsqueeze(1)
                 
-                batch_loss = 0.0
-                valid_items = 0
+                # 🔥 배치 최적화: 유효한 guide preset이 있는 항목만 필터링 (간소화)
+                valid_indices = []
+                valid_descriptions = []
+                valid_audios = []
+                valid_guide_presets = []
                 
-                # 각 아이템에 대해 Guide Preset 매칭만 수행
-                for i, (desc, audio, guide_preset) in enumerate(zip(descriptions, audios, guide_presets)):
-                    if not guide_preset or not isinstance(guide_preset, dict):
-                        continue
-                    
-                    try:
-                        # 모델 forward pass로 예측된 파라미터 얻기
-                        single_audio = audio.unsqueeze(0)  # [1, channels, samples]
-                        
-                        outputs = self.model(
-                            texts=[desc],
-                            audio=single_audio,
-                            use_real_audio=False
-                        )
-                        
-                        if 'preset_params' not in outputs:
-                            continue
-                            
-                        # Guide loss만 계산 (CLAP loss 없음)
-                        predicted_params = outputs['preset_params']
-                        guide_loss = self.compute_guide_loss(predicted_params, guide_preset)
-                        
-                        # Loss가 유효한지 확인
-                        if guide_loss.requires_grad and not torch.isnan(guide_loss) and not torch.isinf(guide_loss):
-                            batch_loss += guide_loss
-                            valid_items += 1
-                        else:
-                            if self.rank == 0:
-                                print(f"⚠️ 무효한 guide loss: requires_grad={guide_loss.requires_grad}, "
-                                      f"nan={torch.isnan(guide_loss)}, inf={torch.isinf(guide_loss)}")
-                        
-                    except Exception as e:
-                        if self.rank == 0:
-                            print(f"⚠️ 개별 아이템 처리 실패: {e}")
-                        continue
+                for i, guide_preset in enumerate(guide_presets):
+                    # 데이터셋에서 이미 검증됨 - 빈 딕셔너리만 확인
+                    if guide_preset:  # 빈 딕셔너리가 아니면 유효
+                        valid_indices.append(i)
+                        valid_descriptions.append(descriptions[i])
+                        valid_audios.append(audios[i])
+                        valid_guide_presets.append(guide_preset)
                 
-                if valid_items == 0:
-                    # 처리할 항목이 없으면 더미 loss
-                    dummy_param = next(self.model.parameters())
-                    batch_loss = torch.mean(dummy_param * 0.0) + 0.1
-                    valid_items = 1
-                else:
-                    batch_loss = batch_loss / valid_items
-                
-                # batch_loss가 gradient를 가지는지 확인
-                if not batch_loss.requires_grad:
+                if len(valid_indices) == 0:
+                    # 유효한 guide preset이 없으면 건너뛰기
                     continue
                 
-                # Backward pass
-                self.optimizer.zero_grad()
-                batch_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
+                # 🚀 배치 처리: 유효한 항목들을 한 번에 처리
+                try:
+                    # 유효한 오디오들을 배치 텐서로 스택
+                    valid_audio_batch = torch.stack(valid_audios)  # [valid_batch_size, channels, samples]
+                    
+                    # 모델 forward pass - 배치 단위로 처리
+                    outputs = self.model(
+                        texts=valid_descriptions,
+                        audio=valid_audio_batch,
+                        use_real_audio=False
+                    )
+                    
+                    if 'preset_params' not in outputs:
+                        if self.rank == 0:
+                            print(f"⚠️ 배치 {batch_idx}: preset_params가 출력에 없음")
+                        continue
+                    
+                    # 🎯 배치 Guide Loss 계산
+                    batch_loss = self.compute_batch_guide_loss(outputs['preset_params'], valid_guide_presets)
+                    
+                    # Loss 유효성 검증
+                    if not batch_loss.requires_grad or torch.isnan(batch_loss) or torch.isinf(batch_loss):
+                        if self.rank == 0:
+                            print(f"⚠️ 배치 {batch_idx}: 무효한 batch guide loss")
+                        continue
+                    
+                    # Backward pass
+                    self.optimizer.zero_grad()
+                    batch_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    self.optimizer.step()
+                    
+                    total_loss += batch_loss.item()
+                    
+                    # Progress bar 업데이트
+                    if self.rank == 0 and hasattr(pbar, 'set_postfix'):
+                        pbar.set_postfix({
+                            'GuideLoss': f'{batch_loss.item():.4f}',
+                            'AvgLoss': f'{total_loss/(batch_idx+1):.4f}',
+                            'ValidItems': f'{len(valid_indices)}/{len(descriptions)}',
+                            'BatchEff': f'{len(valid_indices)}/{len(descriptions)*100:.0f}%',
+                            'Mode': 'Guide'
+                        })
                 
-                total_loss += batch_loss.item()
-                
-                # Progress bar 업데이트
-                if self.rank == 0 and hasattr(pbar, 'set_postfix'):
-                    pbar.set_postfix({
-                        'GuideLoss': f'{batch_loss.item():.4f}',
-                        'AvgLoss': f'{total_loss/(batch_idx+1):.4f}',
-                        'ValidItems': f'{valid_items}/{len(descriptions)}',
-                        'Mode': 'Guide'
-                    })
+                except Exception as e:
+                    if self.rank == 0:
+                        print(f"❌ 배치 forward pass 실패: {e}")
+                    # Fallback: 개별 처리
+                    batch_loss = self.fallback_individual_guide_processing(
+                        valid_descriptions, valid_audios, valid_guide_presets
+                    )
+                    if batch_loss is not None and batch_loss.requires_grad:
+                        self.optimizer.zero_grad()
+                        batch_loss.backward()
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                        self.optimizer.step()
+                        total_loss += batch_loss.item()
                     
             except Exception as e:
                 if self.rank == 0:
@@ -987,7 +1016,7 @@ class TrainingManager:
         return final_loss
 
     def pretrain_validate(self, val_loader):
-        """사전 훈련 전용 검증 - Guide Preset 매칭만"""
+        """사전 훈련 전용 검증 - Guide Preset 매칭만 (배치 최적화)"""
         self.model.eval()
         total_loss = 0.0
         
@@ -1005,47 +1034,92 @@ class TrainingManager:
                     if audios.dim() == 2:
                         audios = audios.unsqueeze(1)
                     
-                    batch_loss = 0.0
-                    valid_items = 0
+                    # 🔥 배치 최적화: 유효한 guide preset 필터링 (간소화)
+                    valid_indices = []
+                    valid_descriptions = []
+                    valid_audios = []
+                    valid_guide_presets = []
                     
-                    # Guide preset 매칭 검증
-                    for i, (desc, audio, guide_preset) in enumerate(zip(descriptions, audios, guide_presets)):
-                        if not guide_preset or not isinstance(guide_preset, dict):
-                            continue
+                    for i, guide_preset in enumerate(guide_presets):
+                        # 데이터셋에서 이미 검증됨 - 빈 딕셔너리만 확인
+                        if guide_preset:  # 빈 딕셔너리가 아니면 유효
+                            valid_indices.append(i)
+                            valid_descriptions.append(descriptions[i])
+                            valid_audios.append(audios[i])
+                            valid_guide_presets.append(guide_preset)
+                    
+                    if len(valid_indices) == 0:
+                        continue
+                    
+                    # 🚀 배치 처리: 유효한 항목들을 한 번에 검증
+                    try:
+                        valid_audio_batch = torch.stack(valid_audios)
                         
-                        try:
-                            single_audio = audio.unsqueeze(0)
-                            
-                            outputs = self.model(
-                                texts=[desc],
-                                audio=single_audio,
-                                use_real_audio=False
-                            )
-                            
-                            if 'preset_params' not in outputs:
-                                continue
-                                
-                            predicted_params = outputs['preset_params']
-                            guide_loss = self.compute_guide_loss(predicted_params, guide_preset)
-                            
-                            batch_loss += guide_loss.item()
-                            valid_items += 1
-                            
-                        except Exception:
+                        outputs = self.model(
+                            texts=valid_descriptions,
+                            audio=valid_audio_batch,
+                            use_real_audio=False
+                        )
+                        
+                        if 'preset_params' not in outputs:
                             continue
+                            
+                        predicted_params = outputs['preset_params']
+                        batch_loss = self.compute_batch_guide_loss(predicted_params, valid_guide_presets)
+                        
+                        total_loss += batch_loss.item()
+                        
+                        # Progress bar 업데이트
+                        if self.rank == 0 and hasattr(pbar, 'set_postfix'):
+                            pbar.set_postfix({
+                                'ValGuideLoss': f'{batch_loss.item():.4f}',
+                                'AvgValLoss': f'{total_loss/(batch_idx+1):.4f}',
+                                'ValidItems': f'{len(valid_indices)}/{len(descriptions)}',
+                                'BatchEff': f'{len(valid_indices)/len(descriptions)*100:.0f}%'
+                            })
                     
-                    if valid_items > 0:
-                        batch_loss = batch_loss / valid_items
-                        total_loss += batch_loss
-                    
-                    # Progress bar 업데이트
-                    if self.rank == 0 and hasattr(pbar, 'set_postfix'):
-                        pbar.set_postfix({
-                            'ValGuideLoss': f'{batch_loss:.4f}' if valid_items > 0 else 'N/A',
-                            'ValidItems': f'{valid_items}/{len(descriptions)}'
-                        })
+                    except Exception as e:
+                        # Fallback: 개별 검증
+                        batch_loss = 0.0
+                        valid_items = 0
+                        
+                        for desc, audio, guide_preset in zip(valid_descriptions, valid_audios, valid_guide_presets):
+                            try:
+                                single_audio = audio.unsqueeze(0)
+                                
+                                outputs = self.model(
+                                    texts=[desc],
+                                    audio=single_audio,
+                                    use_real_audio=False
+                                )
+                                
+                                if 'preset_params' not in outputs:
+                                    continue
+                                    
+                                predicted_params = outputs['preset_params']
+                                guide_loss = self.compute_guide_loss(predicted_params, guide_preset)
+                                
+                                batch_loss += guide_loss.item()
+                                valid_items += 1
+                                
+                            except Exception:
+                                continue
+                        
+                        if valid_items > 0:
+                            batch_loss = batch_loss / valid_items
+                            total_loss += batch_loss
+                        
+                        # Progress bar 업데이트 (fallback)
+                        if self.rank == 0 and hasattr(pbar, 'set_postfix'):
+                            pbar.set_postfix({
+                                'ValGuideLoss': f'{batch_loss:.4f}' if valid_items > 0 else 'N/A',
+                                'ValidItems': f'{valid_items}/{len(descriptions)}',
+                                'Mode': 'Fallback'
+                            })
                         
                 except Exception as e:
+                    if self.rank == 0:
+                        print(f"❌ 검증 배치 {batch_idx} 실패: {e}")
                     continue
         
         # 분산 훈련에서 validation loss 평균 계산
@@ -1213,7 +1287,7 @@ def main():
                        help='히든 레이어 차원')
     
     # 훈련 관련
-    parser.add_argument('--batch_size', type=int, default=256,
+    parser.add_argument('--batch_size', type=int, default=128,
                        help='배치 크기')
     parser.add_argument('--num_epochs', type=int, default=100,
                        help='전체 에포크 수')

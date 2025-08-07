@@ -29,24 +29,90 @@ class PretrainDataset(Dataset):
             raise ValueError("❌ 사전 훈련용 Fine Preset을 로드할 수 없습니다")
         
         print(f"🎯 사전 훈련 데이터셋 초기화:")
-        print(f"   - Fine presets 수: {len(self.fine_presets)}")
+        print(f"   - 유효한 Fine presets 수: {len(self.fine_presets)}")
         print(f"   - 오디오 길이: {audio_length}초")
         print(f"   - 모드: Fine Preset Only (No Descriptions)")
+        print(f"   - 데이터 포인트 수: {len(self.fine_presets)} (유효한 preset 개수와 동일)")
     
     def _load_fine_presets(self, fine_preset_path):
-        """Fine-tuned presets 로드"""
+        """Fine-tuned presets 로드 및 유효성 검증"""
         try:
             spec = importlib.util.spec_from_file_location("fine_presets", fine_preset_path)
             fine_presets_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(fine_presets_module)
             
-            fine_presets = getattr(fine_presets_module, 'fined_presets', [])
-            print(f"✅ {len(fine_presets)}개 fine preset 로드 완료")
-            return fine_presets
+            raw_presets = getattr(fine_presets_module, 'fined_presets', [])
+            print(f"📥 {len(raw_presets)}개 raw preset 로드됨")
+            
+            # 🔍 유효한 preset만 필터링
+            valid_presets = []
+            invalid_count = 0
+            
+            for i, preset in enumerate(raw_presets):
+                if self._is_valid_preset(preset):
+                    valid_presets.append(preset)
+                else:
+                    invalid_count += 1
+                    if invalid_count <= 5:  # 처음 5개 에러만 출력
+                        print(f"⚠️ 무효한 preset (idx {i}): {type(preset)} - {str(preset)[:100]}")
+            
+            print(f"✅ {len(valid_presets)}개 유효한 preset (무효: {invalid_count}개)")
+            return valid_presets
             
         except Exception as e:
             print(f"❌ Fine presets 로드 실패: {e}")
             return []
+    
+    def _is_valid_preset(self, preset):
+        """Preset 유효성 검증"""
+        if not preset or not isinstance(preset, dict):
+            return False
+        
+        # 필수 키들이 있는지 확인
+        required_sections = ['eq', 'reverb', 'distortion', 'pitch']
+        for section in required_sections:
+            if section not in preset:
+                return False
+            
+            section_data = preset[section]
+            if not isinstance(section_data, dict):
+                return False
+        
+        # EQ 섹션 상세 검증
+        eq_section = preset['eq']
+        expected_eq_keys = ['band_1', 'band_2', 'band_3', 'band_4', 'band_5']
+        for band in expected_eq_keys:
+            if band not in eq_section:
+                return False
+            band_data = eq_section[band]
+            if not isinstance(band_data, dict):
+                return False
+            # EQ 밴드 필수 파라미터 체크
+            band_required = ['center_freq', 'gain_db', 'q', 'filter_type']
+            for param in band_required:
+                if param not in band_data:
+                    return False
+        
+        # Reverb 섹션 검증
+        reverb_section = preset['reverb']
+        reverb_required = ['room_size', 'pre_delay', 'diffusion', 'damping', 'wet_gain']
+        for param in reverb_required:
+            if param not in reverb_section:
+                return False
+        
+        # Distortion 섹션 검증
+        dist_section = preset['distortion']
+        dist_required = ['gain', 'color']
+        for param in dist_required:
+            if param not in dist_section:
+                return False
+        
+        # Pitch 섹션 검증
+        pitch_section = preset['pitch']
+        if 'scale' not in pitch_section:
+            return False
+        
+        return True
     
     def _load_audio(self, audio_path):
         """오디오 파일 로드"""
@@ -69,9 +135,9 @@ class PretrainDataset(Dataset):
         return len(self.fine_presets)
     
     def __getitem__(self, idx):
-        """Fine preset 아이템 반환 (description 없음)"""
+        """Fine preset 아이템 반환 (description 없음) - 사전 검증된 preset 사용"""
         try:
-            preset = self.fine_presets[idx]
+            preset = self.fine_presets[idx]  # 이미 유효성 검증된 preset
             
             # 랜덤 오디오 선택 (instrumentals 폴더에서)
             instrumentals_path = os.path.join(self.audio_dataset_path, 'instrumentals')
@@ -92,7 +158,7 @@ class PretrainDataset(Dataset):
             return {
                 'description': f"preset_{idx}",  # 더미 description 
                 'audio': audio,
-                'guide_preset': preset,
+                'guide_preset': preset,  # 이미 검증된 preset
                 'is_guide': True,  # 사전 훈련 플래그
                 'subject': 'instrumental',
                 'audio_type': 'instrumental'
@@ -100,11 +166,25 @@ class PretrainDataset(Dataset):
             
         except Exception as e:
             print(f"❌ 사전 훈련 아이템 로드 실패 (idx: {idx}): {e}")
+            # 빈 preset이 아닌 기본 preset 구조 반환
+            default_preset = {
+                'eq': {
+                    'band_1': {'center_freq': 100, 'gain_db': 0.0, 'q': 1.0, 'filter_type': 'high_pass'},
+                    'band_2': {'center_freq': 500, 'gain_db': 0.0, 'q': 1.0, 'filter_type': 'bell'},
+                    'band_3': {'center_freq': 2000, 'gain_db': 0.0, 'q': 1.0, 'filter_type': 'bell'},
+                    'band_4': {'center_freq': 8000, 'gain_db': 0.0, 'q': 1.0, 'filter_type': 'bell'},
+                    'band_5': {'center_freq': 15000, 'gain_db': 0.0, 'q': 1.0, 'filter_type': 'low_pass'}
+                },
+                'reverb': {'room_size': 5.0, 'pre_delay': 20.0, 'diffusion': 0.7, 'damping': 0.5, 'wet_gain': 0.3},
+                'distortion': {'gain': 10.0, 'color': 0.6},
+                'pitch': {'scale': 1.0}
+            }
+            
             return {
-                'description': f"preset_{idx}",
+                'description': f"preset_{idx}_default",
                 'audio': torch.zeros(int(self.sample_rate * self.audio_length)),
-                'guide_preset': {},
-                'is_guide': False,
+                'guide_preset': default_preset,
+                'is_guide': True,
                 'subject': 'instrumental',
                 'audio_type': 'instrumental'
             }
@@ -148,7 +228,7 @@ class PresetDataset(Dataset):
         print(f"   - Guide Preset 사용: {'✅' if use_fine_tuned_presets else '❌'}")
     
     def _load_fine_presets(self, preset_path):
-        """Fine-tuned presets 파일 로드"""
+        """Fine-tuned presets 파일 로드 및 유효성 검증"""
         presets = []
         try:
             print(f"📖 Fine preset 파일 읽기 시작: {preset_path}")
@@ -171,8 +251,23 @@ class PresetDataset(Dataset):
             
             # fined_presets 리스트 가져오기
             if hasattr(module, 'fined_presets'):
-                presets = module.fined_presets
-                print(f"✅ {len(presets)}개 fine preset 로드 완료")
+                raw_presets = module.fined_presets
+                print(f"📥 {len(raw_presets)}개 raw preset 로드됨")
+                
+                # 🔍 유효한 preset만 필터링
+                valid_presets = []
+                invalid_count = 0
+                
+                for i, preset in enumerate(raw_presets):
+                    if self._is_valid_preset(preset):
+                        valid_presets.append(preset)
+                    else:
+                        invalid_count += 1
+                        if invalid_count <= 3:  # 처음 3개 에러만 출력
+                            print(f"⚠️ 무효한 preset (idx {i}): {type(preset)}")
+                
+                presets = valid_presets
+                print(f"✅ {len(presets)}개 유효한 preset (무효: {invalid_count}개)")
             else:
                 print(f"❌ 'fined_presets' 속성을 찾을 수 없음")
                 
@@ -181,6 +276,57 @@ class PresetDataset(Dataset):
             traceback.print_exc()
             
         return presets
+    
+    def _is_valid_preset(self, preset):
+        """Preset 유효성 검증 (PresetDataset용)"""
+        if not preset or not isinstance(preset, dict):
+            return False
+        
+        # 필수 키들이 있는지 확인
+        required_sections = ['eq', 'reverb', 'distortion', 'pitch']
+        for section in required_sections:
+            if section not in preset:
+                return False
+            
+            section_data = preset[section]
+            if not isinstance(section_data, dict):
+                return False
+        
+        # EQ 섹션 상세 검증
+        eq_section = preset['eq']
+        expected_eq_keys = ['band_1', 'band_2', 'band_3', 'band_4', 'band_5']
+        for band in expected_eq_keys:
+            if band not in eq_section:
+                return False
+            band_data = eq_section[band]
+            if not isinstance(band_data, dict):
+                return False
+            # EQ 밴드 필수 파라미터 체크
+            band_required = ['center_freq', 'gain_db', 'q', 'filter_type']
+            for param in band_required:
+                if param not in band_data:
+                    return False
+        
+        # Reverb 섹션 검증
+        reverb_section = preset['reverb']
+        reverb_required = ['room_size', 'pre_delay', 'diffusion', 'damping', 'wet_gain']
+        for param in reverb_required:
+            if param not in reverb_section:
+                return False
+        
+        # Distortion 섹션 검증
+        dist_section = preset['distortion']
+        dist_required = ['gain', 'color']
+        for param in dist_required:
+            if param not in dist_section:
+                return False
+        
+        # Pitch 섹션 검증
+        pitch_section = preset['pitch']
+        if 'scale' not in pitch_section:
+            return False
+        
+        return True
     
     
     def _extract_subject_from_description(self, description):
@@ -268,23 +414,11 @@ class PresetDataset(Dataset):
         else:
             audio = self._load_audio(audio_path)
         
-        # Fine preset 가이드 (스마트 할당)
+        # Fine preset 가이드 (간단한 할당 - 이미 검증된 preset만 사용)
         guide_preset = {}
         if self.use_fine_tuned_presets and self.fine_presets:
-            # 1단계: Description과 정확히 매칭되는 preset 찾기
-            best_match_score = 0.0
-            best_preset = None
-            
-            for preset in self.fine_presets:
-                match_score = self._match_preset_to_description(description, preset)
-                if match_score > best_match_score:
-                    best_match_score = match_score
-                    best_preset = preset
-            
-            # 2단계: 매칭도가 임계값 이상이면 사용, 아니면 확률적 할당
-            if best_preset and best_match_score > 0.3:
-                guide_preset = best_preset
-            elif self.fine_presets and random.random() < 0.2:  # 20% 확률로 랜덤 할당
+            # 간단한 랜덤 할당 (모든 preset이 이미 검증됨)
+            if random.random() < 0.3:  # 30% 확률로 guide preset 할당
                 guide_preset = random.choice(self.fine_presets)
         
         return {
@@ -416,7 +550,7 @@ class PureDescriptionDataset(Dataset):
 
 
 def create_custom_collate_fn(include_guide_preset=True):
-    """커스텀 collate function 생성"""
+    """커스텀 collate function 생성 - 사전 검증된 preset 사용"""
     
     def collate_fn(batch):
         descriptions = [item['description'] for item in batch]
@@ -432,6 +566,7 @@ def create_custom_collate_fn(include_guide_preset=True):
         }
         
         if include_guide_preset:
+            # 모든 preset은 이미 dataset에서 검증됨 - 추가 검증 불필요
             guide_presets = [item.get('guide_preset', {}) for item in batch]
             result['guide_preset'] = guide_presets
         
