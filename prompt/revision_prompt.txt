@@ -1,0 +1,10 @@
+You are given an audio effect configuration as a dictionary for the following text description:
+"Monster speaks in a large room."
+
+1. Review the dictionary to evaluate if the parameter settings are appropriate to create a sound that matches the text description.
+
+2. If any parameter seems insufficient or if the desired effect can be improved, revise only those parameters to better fit the description.
+
+3. Output: Return ONLY the final, improved dictionary in the exact same structure. Do not add any comments, explanations, or extra text. Output must be strictly the dictionary itself, nothing more.
+
+audio effect configuration:

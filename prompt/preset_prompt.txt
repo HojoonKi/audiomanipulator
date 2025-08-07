@@ -1,0 +1,142 @@
+Given the following audio tools, their parameter ranges, and a text description,
+
+1. Select and combine tool settings to achieve a sound that best matches the described situation.
+
+2. For each tool, assign values ONLY within the allowed parameter ranges.
+
+3. For Equalizer, specify a single band with the most important frequency adjustment for the effect.
+
+4. For each parameter, include an in-line code comment (within the dictionary, not outside) explaining its contribution to the sound.
+
+5. Output strictly and exclusively in Python dictionary format, filling all parameters in each tool block.
+
+6. Do not output any text, commentary, or explanation outside the dictionary.
+
+Text description:
+"Monster speaks in a large room."
+
+Usable audio tools and parameter ranges
+python
+PARAMETER_RANGES = {
+    "Equalizer": {
+        "frequency": {"min": 20, "max": 20000, "unit": "Hz", "log_scale": True},
+        "gain": {"min": -20, "max": 20, "unit": "dB", "log_scale": False},
+        "q": {"min": 0.1, "max": 10.0, "unit": "", "log_scale": True},
+        "filter_type": [
+            "bell", "high-shelf", "low-shelf", "highpass", "lowpass", "notch"
+        ]
+    },
+    "Reverb": {
+        "room_size": {"min": 0, "max": 10, "unit": ""},
+        "pre_delay": {"min": 0, "max": 0.2, "unit": "seconds"},
+        "diffusion": {"min": 0, "max": 1, "unit": ""},
+        "damping": {"min": 0, "max": 1, "unit": ""},
+        "wet_gain": {"min": 0, "max": 1, "unit": ""}
+    },
+    "Distortion": {
+        "gain": {"min": 0, "max": 30, "unit": "dB"},
+        "color": {"min": 0, "max": 1, "unit": ""}
+    },
+    "Pitch": {
+        "scale": {"min": -12, "max": 12, "unit": "semitones"}
+    }
+}
+Return format:
+
+python
+{
+  "prompt": "Monster speaks in a large room.",
+
+  "Equalizer": {
+    "frequency": ...,      # comment - target frequency for adjustment
+    "gain": ...,           # comment - boost/cut amount in dB
+    "q": ...,              # comment - bandwidth of the filter
+    "filter_type": "..."   # comment - type of filter to use
+  },
+  "Reverb": {
+    "room_size": ...,      # comment - room size (0=small, 10=cathedral)
+    "pre_delay": ...,      # comment - pre-delay time in seconds
+    "diffusion": ...,      # comment - sound diffusion amount
+    "damping": ...,        # comment - high frequency damping
+    "wet_gain": ...        # comment - reverb signal level
+  },
+  "Distortion": {
+    "gain": ...,           # comment - distortion amount in dB
+    "color": ...           # comment - distortion character (0=warm, 1=harsh)
+  },
+  "Pitch": {
+    "scale": ...           # comment - pitch shift in semitones
+  }
+}
+
+
+
+#########################################################################################################
+
+Generate presets for each description.
+
+Descriptions:
+1. Monster speaks in a large room.
+2. Tiny fairy whispers in a glass bottle.
+3. Old robot shouts inside a metal tunnel.
+
+Return **only** a Python list where every item is the complete dictionary specified below, one per description. You can use 5 equalizer bands.
+
+Usable audio tools and parameter ranges
+
+PARAMETER_RANGES = {
+    "Equalizer": {
+        "frequency": {"min": 20, "max": 20000, "unit": "Hz", "log_scale": True},
+        "gain": {"min": -20, "max": 20, "unit": "dB", "log_scale": False},
+        "q": {"min": 0.1, "max": 10.0, "unit": "", "log_scale": True},
+        "filter_type": [
+            "bell", "high-shelf", "low-shelf", "highpass", "lowpass", "notch"
+        ]
+    },
+    "Reverb": {
+        "room_size": {"min": 0, "max": 10, "unit": ""},
+        "pre_delay": {"min": 0, "max": 0.2, "unit": "seconds"},
+        "diffusion": {"min": 0, "max": 1, "unit": ""},
+        "damping": {"min": 0, "max": 1, "unit": ""},
+        "wet_gain": {"min": 0, "max": 1, "unit": ""}
+    },
+    "Distortion": {
+        "gain": {"min": 0, "max": 30, "unit": "dB"},
+        "color": {"min": 0, "max": 1, "unit": ""}
+    },
+    "Pitch": {
+        "scale": {"min": -12, "max": 12, "unit": "semitones"}
+    }
+}
+
+Schema per item:
+{
+  "prompt": "<original description>",
+
+  "Equalizer": {
+    "frequency": ...,      # comment
+    "gain": ...,           # comment
+    "q": ...,              # comment
+    "filter_type": "..."   # comment
+  },
+  "Reverb": {
+    "room_size": ...,      # comment
+    "pre_delay": ...,      # comment
+    "diffusion": ...,      # comment
+    "damping": ...,        # comment
+    "wet_gain": ...        # comment
+  },
+  "Distortion": {
+    "gain": ...,           # comment
+    "color": ...           # comment
+  },
+  "Pitch": {
+    "scale": ...           # comment
+  }
+}
+
+For each description:
+• Create exactly FIVE EQ bands.
+• Present them in a list named "Equalizer" (each list element is a band dict with frequency, gain, q, filter_type plus inline comments).
+• Keep all other tool blocks (Reverb, Distortion, Pitch) exactly as before.
+• Output only the final Python list of preset dictionaries.

@@ -1,0 +1,38 @@
+Generate a large set of concise, simple, and practical auditory scene or speech effect descriptions. 
+
+Each sentence should combine:
+
+A sound subject ({
+    "person": [
+      "a male",
+      "a female"
+    ],
+    "instrument": [
+      "electric guitar",
+      "acoustic guitar",
+      "grand piano",
+      "upright piano",
+      "drum kit",
+      "violin",
+      "cello",
+      "flute",
+      "saxophone",
+      "trumpet"
+    ]
+  }),
+
+One or two clear audio effects (e.g., robotic, monster-like, distorted, lo-fi, echoing, reverberant, phaser, muffled, compressed, etc.),
+
+And an acoustic environment (e.g., large hall, stone cave, gymnasium, cathedral, subway, bathroom, underwater, windy rooftop, beach, forest, etc.).
+
+Avoid literary and overly complex sentences.
+
+Do NOT add vivid scene details, stories, background sounds, or indirect metaphors.
+
+Focus on clear description of who/what is making the sound, what effect is applied, and the environment, but make it complete sentence.
+
+Each description should be one short English sentence, easy for a sound designer or algorithm to interpret as “what kind of audio effect to apply”.
+
+Variety is important: mix different combinations of sound source, effect, and environment; minimize repetition.
+
+Make sure that produced sentences are not overlapped with the sentences above.
