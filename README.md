@@ -20,7 +20,29 @@ This project aims to develop an **AI model that automatically generates audio ef
 ### Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (1.29+)
-- For GPU support: [NVIDIA Docker](https://github.com/NVIDIA/nvidia-docker) (recommended for training)
+- For GPU support (RTX 3090/4090): [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+
+### 🔧 GPU Setup (RTX 3090/4090 Users)
+
+Before building the container, install NVIDIA Container Toolkit:
+
+```bash
+# Add NVIDIA repository
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-container-runtime/$distribution/nvidia-container-runtime.list | \
+sudo tee /etc/apt/sources.list.d/nvidia-container-runtime.list
+
+# Install NVIDIA Container Toolkit
+sudo apt-get update
+sudo apt-get install nvidia-container-toolkit
+
+# Configure Docker runtime
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+
+# Verify installation
+docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
+```
 
 ### 🚀 Complete Setup Guide
 
@@ -68,19 +90,24 @@ docker-compose restart           # Restart container
 docker-compose down             # Stop and remove container
 ```
 
-### 🔧 GPU Support (Already Configured)
+### 🔧 GPU Support (RTX 3090/4090 Ready)
 
-The container is pre-configured with GPU support. Once inside the container, verify it's working:
+The container is pre-configured with CUDA 12.1 for RTX 3090/4090 support. Once inside the container, verify it's working:
 
 ```bash
 # Check CUDA availability (run inside container)
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+python -c "import torch; print(f'CUDA version: {torch.version.cuda}')"
+python -c "import torch; print(f'GPU count: {torch.cuda.device_count()}')"
 
 # Check GPU memory (run inside container)
 nvidia-smi
 ```
 
-**Note**: GPU support is already enabled in `docker-compose.yml`. If you don't have an NVIDIA GPU, the container will automatically fall back to CPU mode.
+**Note**: 
+- CUDA 12.1 support is enabled for RTX 3090/4090 compatibility
+- If you don't have an NVIDIA GPU, the container will automatically fall back to CPU mode
+- For older GPUs, you may need to modify the Dockerfile to use CUDA 11.8
 
 ## 🛠️ Alternative Installation Methods
 
@@ -358,12 +385,17 @@ docker-compose logs audiomanipulator
 docker-compose build --no-cache audiomanipulator
 ```
 
-**GPU not detected**:
+**GPU not detected (RTX 3090/4090)**:
 ```bash
-# Verify NVIDIA Docker
-docker run --rm --gpus all nvidia/cuda:11.8-base nvidia-smi
+# Verify NVIDIA Container Toolkit installation
+docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
 
-# Check docker-compose.yml has GPU config uncommented
+# Check if NVIDIA Container Toolkit is properly configured
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+
+# For older GPUs, try CUDA 11.8 instead
+# Modify Dockerfile: FROM nvidia/cuda:11.8-devel-ubuntu22.04
 ```
 
 **Permission issues**:

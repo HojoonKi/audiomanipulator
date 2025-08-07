@@ -1,12 +1,16 @@
-version: '3.8'
-
 services:
   audiomanipulator:
     build: .
     container_name: audiomanipulator
     
-    # GPU support (uncomment for GPU)
-    runtime: nvidia
+    # GPU support for RTX 3090/4090
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     
     volumes:
       - .:/home/audiomanipulator/app
