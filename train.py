@@ -349,7 +349,6 @@ class TrainingManager:
                     backbone_type='residual',
                     decoder_type='parallel',
                     sample_rate=args.sample_rate,
-                    use_differentiable_audio=True,
                     target_params=500000
                 )
                 
@@ -423,57 +422,6 @@ class TrainingManager:
             print(f"   - Total trainable: {total_trainable:,}")
             print(f"   - CLAP 사용: {'✅ Enabled (내장)' if self.clap_module else '❌ Disabled'}")
             
-            # 더 상세한 모델 구성 및 GPU 메모리 사용량 출력
-            print(f"\n📊 모델 구성 상세:")
-            
-            # 각 구성요소별 파라미터 수 및 디바이스 위치 계산
-            if hasattr(self.model, 'text_encoder'):
-                text_encoder_params = sum(p.numel() for p in self.model.text_encoder.parameters())
-                # Text Encoder의 실제 디바이스 확인
-                te_devices = set()
-                for name, param in self.model.text_encoder.named_parameters():
-                    te_devices.add(str(param.device))
-                    if len(te_devices) <= 3:  # 처음 몇 개만 상세 출력
-                        print(f"      - {name[:30]}... : {param.device}")
-                print(f"   📝 Text Encoder: {text_encoder_params:,} parameters")
-                print(f"      Devices: {list(te_devices)}")
-            
-            if hasattr(self.model, 'clap_encoder') and self.model.clap_encoder:
-                clap_params = sum(p.numel() for p in self.model.clap_encoder.parameters())
-                clap_trainable = sum(p.numel() for p in self.model.clap_encoder.parameters() if p.requires_grad)
-                
-                # CLAP 모델의 디바이스들 확인
-                clap_devices = set()
-                for name, param in self.model.clap_encoder.named_parameters():
-                    clap_devices.add(str(param.device))
-                    if len(clap_devices) <= 3:  # 처음 몇 개만 상세 출력
-                        print(f"      - {name[:30]}... : {param.device}")
-                
-                print(f"   🎵 CLAP Encoder: {clap_params:,} parameters ({clap_trainable:,} trainable)")
-                print(f"      Devices: {list(clap_devices)}")
-                
-                # CLAP 내부 모델 구조 확인
-                if hasattr(self.model.clap_encoder, 'clap_model'):
-                    inner_clap_devices = set()
-                    for name, param in self.model.clap_encoder.clap_model.named_parameters():
-                        inner_clap_devices.add(str(param.device))
-                    print(f"      Inner CLAP Model Devices: {list(inner_clap_devices)}")
-            
-            if hasattr(self.model, 'backbone'):
-                backbone_params = sum(p.numel() for p in self.model.backbone.parameters())
-                backbone_devices = set()
-                for name, param in self.model.backbone.named_parameters():
-                    backbone_devices.add(str(param.device))
-                print(f"   🧠 Backbone: {backbone_params:,} parameters")
-                print(f"      Devices: {list(backbone_devices)}")
-            
-            if hasattr(self.model, 'decoder'):
-                decoder_params = sum(p.numel() for p in self.model.decoder.parameters())
-                decoder_devices = set()
-                for name, param in self.model.decoder.named_parameters():
-                    decoder_devices.add(str(param.device))
-                print(f"   🎛️ Decoder: {decoder_params:,} parameters")
-                print(f"      Devices: {list(decoder_devices)}")
             
             # GPU 메모리 사용량 확인
             if torch.cuda.is_available():

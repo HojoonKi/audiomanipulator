@@ -22,7 +22,7 @@ from typing import Optional, List, Tuple
 
 # Import attention components
 try:
-    from AudioManipulator.model.attention import (
+    from attention import (
         CrossAttention, 
         BasicTransformerBlock, 
         FeedForward,
@@ -31,37 +31,209 @@ try:
     )
     ATTENTION_AVAILABLE = True
 except ImportError:
-    print("Warning: attention.py not found. Transformer backbones disabled.")
-    ATTENTION_AVAILABLE = False
+    try:
+        from .attention import (
+            CrossAttention, 
+            BasicTransformerBlock, 
+            FeedForward,
+            default,
+            exists
+        )
+        ATTENTION_AVAILABLE = True
+    except ImportError:
+        try:
+            from model.attention import (
+                CrossAttention, 
+                BasicTransformerBlock, 
+                FeedForward,
+                default,
+                exists
+            )
+            ATTENTION_AVAILABLE = True
+        except ImportError:
+            print("Warning: attention.py not found. Transformer backbones disabled.")
+            ATTENTION_AVAILABLE = False
+
+
+class CrossModalFusionBlock(nn.Module):
+    """
+    Cross-modal fusion block using cross-attention
+    
+    Allows CLAP embeddings to attend to text embeddings for richer context understanding.
+    """
+    
+    def __init__(self, 
+                 text_dim: int,
+                 clap_dim: int, 
+                 hidden_dim: int = 512,
+                 num_heads: int = 8,
+                 dropout: float = 0.1):
+        super().__init__()
+        
+        if not ATTENTION_AVAILABLE:
+            raise ImportError("attention.py required for CrossModalFusionBlock")
+        
+        self.text_dim = text_dim
+        self.clap_dim = clap_dim
+        self.hidden_dim = hidden_dim
+        
+        # Project both modalities to same dimension
+        self.text_proj = nn.Linear(text_dim, hidden_dim)
+        self.clap_proj = nn.Linear(clap_dim, hidden_dim)
+        
+        # Cross-attention: CLAP queries attend to text keys/values
+        self.clap_to_text_attention = CrossAttention(
+            query_dim=hidden_dim,
+            context_dim=hidden_dim,
+            heads=num_heads,
+            dim_head=hidden_dim // num_heads,
+            dropout=dropout
+        )
+        
+        # Cross-attention: Text queries attend to CLAP keys/values  
+        self.text_to_clap_attention = CrossAttention(
+            query_dim=hidden_dim,
+            context_dim=hidden_dim,
+            heads=num_heads,
+            dim_head=hidden_dim // num_heads,
+            dropout=dropout
+        )
+        
+        # Self-attention for refined representations
+        self.text_self_attention = CrossAttention(
+            query_dim=hidden_dim,
+            context_dim=None,  # Self-attention
+            heads=num_heads,
+            dim_head=hidden_dim // num_heads,
+            dropout=dropout
+        )
+        
+        self.clap_self_attention = CrossAttention(
+            query_dim=hidden_dim,
+            context_dim=None,  # Self-attention
+            heads=num_heads,
+            dim_head=hidden_dim // num_heads,
+            dropout=dropout
+        )
+        
+        # Layer norms
+        self.text_norm1 = nn.LayerNorm(hidden_dim)
+        self.text_norm2 = nn.LayerNorm(hidden_dim)
+        self.clap_norm1 = nn.LayerNorm(hidden_dim)
+        self.clap_norm2 = nn.LayerNorm(hidden_dim)
+        
+        # Feed-forward networks
+        self.text_ff = FeedForward(hidden_dim, dropout=dropout, glu=True)
+        self.clap_ff = FeedForward(hidden_dim, dropout=dropout, glu=True)
+        
+        # Final fusion
+        self.fusion_attention = CrossAttention(
+            query_dim=hidden_dim,
+            context_dim=hidden_dim,
+            heads=num_heads,
+            dim_head=hidden_dim // num_heads,
+            dropout=dropout
+        )
+        
+        self.fusion_norm = nn.LayerNorm(hidden_dim)
+        self.fusion_ff = FeedForward(hidden_dim, dropout=dropout, glu=True)
+        
+        print(f"✅ CrossModalFusionBlock initialized:")
+        print(f"   Text dim: {text_dim} -> {hidden_dim}")
+        print(f"   CLAP dim: {clap_dim} -> {hidden_dim}")
+        print(f"   Heads: {num_heads}")
+    
+    def forward(self, text_emb: torch.Tensor, clap_emb: torch.Tensor):
+        """
+        Forward pass through cross-modal fusion
+        
+        Args:
+            text_emb: Text embeddings (batch_size, text_dim)
+            clap_emb: CLAP embeddings (batch_size, clap_dim)
+            
+        Returns:
+            fused_features: Cross-attended and fused features (batch_size, hidden_dim)
+        """
+        batch_size = text_emb.shape[0]
+        
+        # Project to common dimension and add sequence dimension
+        text_feat = self.text_proj(text_emb).unsqueeze(1)  # (batch_size, 1, hidden_dim)
+        clap_feat = self.clap_proj(clap_emb).unsqueeze(1)  # (batch_size, 1, hidden_dim)
+        
+        # Cross-attention: CLAP attends to text for richer context
+        clap_attended = clap_feat + self.clap_to_text_attention(
+            self.clap_norm1(clap_feat), context=self.text_norm1(text_feat)
+        )
+        
+        # Cross-attention: Text attends to CLAP for audio-aware context
+        text_attended = text_feat + self.text_to_clap_attention(
+            self.text_norm1(text_feat), context=self.clap_norm1(clap_feat)
+        )
+        
+        # Self-attention for refined representations
+        text_refined = text_attended + self.text_self_attention(self.text_norm2(text_attended))
+        clap_refined = clap_attended + self.clap_self_attention(self.clap_norm2(clap_attended))
+        
+        # Feed-forward processing
+        text_final = text_refined + self.text_ff(self.text_norm2(text_refined))
+        clap_final = clap_refined + self.clap_ff(self.clap_norm2(clap_refined))
+        
+        # Final fusion: Use enhanced CLAP as query, enhanced text as context
+        # This allows CLAP to query the rich textual context
+        fused = clap_final + self.fusion_attention(
+            self.fusion_norm(clap_final), context=self.fusion_norm(text_final)
+        )
+        
+        # Final processing
+        fused = fused + self.fusion_ff(self.fusion_norm(fused))
+        
+        # Remove sequence dimension
+        return fused.squeeze(1)  # (batch_size, hidden_dim)
 
 
 class DynamicBackbone(nn.Module):
     """
-    동적 백본 네트워크 - 다양한 입력 차원을 처리
+    Dynamic backbone network with cross-attention fusion
     
-    CLAP embedding과 다양한 텍스트 인코더의 embedding을 모두 지원합니다.
-    입력 차원을 자동으로 감지하고 적절한 처리를 수행합니다.
+    Supports various text encoders and CLAP embeddings with sophisticated 
+    cross-attention mechanisms for richer multimodal understanding.
     """
     
     def __init__(self, 
-                 text_dim: Optional[int] = None,  # 텍스트 임베딩 차원 (동적)
-                 clap_dim: int = 512,  # CLAP 임베딩 차원 (고정)
+                 text_dim: Optional[int] = None,  # Text embedding dimension (dynamic)
+                 clap_dim: int = 512,  # CLAP embedding dimension (fixed)
                  hidden_dims: list = None,
                  dropout_rate: float = 0.2,
                  activation: str = 'relu',
-                 fusion_type: str = 'concat'):  # 'concat', 'add', 'cross_attention'
+                 fusion_type: str = 'cross_attention'):  # 'concat', 'add', 'cross_attention'
         super().__init__()
         
         self.text_dim = text_dim
         self.clap_dim = clap_dim
         self.fusion_type = fusion_type
         
-        # 동적 입력 차원 계산
-        if fusion_type == 'concat':
+        # Enhanced fusion options
+        if fusion_type == 'cross_attention':
+            # Use sophisticated cross-attention fusion
+            if text_dim is not None:
+                self.cross_modal_fusion = CrossModalFusionBlock(
+                    text_dim=text_dim,
+                    clap_dim=clap_dim,
+                    hidden_dim=512,  # Common dimension after fusion
+                    num_heads=8,
+                    dropout=dropout_rate
+                )
+                input_dim = 512  # Output of cross-modal fusion
+            else:
+                # Will be built dynamically
+                self.cross_modal_fusion = None
+                input_dim = None
+        elif fusion_type == 'concat':
+            # Simple concatenation
             if text_dim is not None:
                 input_dim = text_dim + clap_dim
             else:
-                input_dim = None  # 런타임에 결정
+                input_dim = None  # Runtime determination
         elif fusion_type == 'add':
             # Addition requires same dimensions
             if text_dim is not None and text_dim != clap_dim:
@@ -72,9 +244,12 @@ class DynamicBackbone(nn.Module):
         else:
             input_dim = clap_dim  # Default fallback
         
-        # Hidden dimensions
+        # Hidden dimensions for processing after fusion
         if hidden_dims is None:
-            hidden_dims = [512, 256, 128]
+            if fusion_type == 'cross_attention':
+                hidden_dims = [512, 256, 128]  # Start from fusion output
+            else:
+                hidden_dims = [512, 256, 128]
         
         self.hidden_dims = hidden_dims
         self.dropout_rate = dropout_rate
@@ -100,9 +275,26 @@ class DynamicBackbone(nn.Module):
         print(f"   CLAP dim: {clap_dim}")
         print(f"   Fusion type: {fusion_type}")
         print(f"   Hidden dims: {hidden_dims}")
+        if fusion_type == 'cross_attention':
+            print(f"   🎯 Using cross-attention for rich multimodal fusion!")
+    
+    def _build_cross_modal_fusion(self, text_dim: int):
+        """Dynamically build cross-modal fusion block"""
+        self.cross_modal_fusion = CrossModalFusionBlock(
+            text_dim=text_dim,
+            clap_dim=self.clap_dim,
+            hidden_dim=512,
+            num_heads=8,
+            dropout=self.dropout_rate
+        )
+        
+        if torch.cuda.is_available():
+            self.cross_modal_fusion = self.cross_modal_fusion.cuda()
+            
+        print(f"🔧 Dynamic cross-modal fusion built: {text_dim} + {self.clap_dim} -> 512")
     
     def _build_layers(self, input_dim: int):
-        """동적으로 레이어 구성"""
+        """Dynamically build processing layers"""
         layers = []
         prev_dim = input_dim
         
@@ -125,7 +317,7 @@ class DynamicBackbone(nn.Module):
         print(f"🔧 Dynamic layers built with input_dim: {input_dim} -> output_dim: {self.output_dim}")
     
     def _auto_detect_and_build(self, combined_input: torch.Tensor):
-        """첫 번째 forward 호출 시 자동으로 차원 감지하고 레이어 구성"""
+        """Auto-detect dimensions and build layers on first forward pass"""
         input_dim = combined_input.shape[-1]
         self._build_layers(input_dim)
         # Move to same device
@@ -134,7 +326,7 @@ class DynamicBackbone(nn.Module):
     
     def forward(self, text_emb: Optional[torch.Tensor] = None, clap_emb: Optional[torch.Tensor] = None):
         """
-        Forward pass through dynamic backbone
+        Forward pass through dynamic backbone with cross-attention fusion
         
         Args:
             text_emb: Text embeddings (batch_size, text_dim)
@@ -145,8 +337,17 @@ class DynamicBackbone(nn.Module):
         """
         # Handle different input scenarios
         if text_emb is not None and clap_emb is not None:
-            # Both embeddings available
-            if self.fusion_type == 'concat':
+            # Both embeddings available - use sophisticated fusion
+            if self.fusion_type == 'cross_attention':
+                # Build cross-modal fusion dynamically if needed
+                if self.cross_modal_fusion is None:
+                    text_dim = text_emb.shape[-1]
+                    self._build_cross_modal_fusion(text_dim)
+                
+                # Cross-attention fusion for rich multimodal understanding
+                combined = self.cross_modal_fusion(text_emb, clap_emb)
+                
+            elif self.fusion_type == 'concat':
                 combined = torch.cat([text_emb, clap_emb], dim=-1)
             elif self.fusion_type == 'add':
                 if hasattr(self, 'text_proj'):
@@ -159,15 +360,23 @@ class DynamicBackbone(nn.Module):
                 combined = torch.cat([text_emb, clap_emb], dim=-1)
                 
         elif text_emb is not None:
-            # Only text embedding
-            combined = text_emb
+            # Only text embedding - handle dynamic dimensions
+            if self.fusion_type == 'cross_attention':
+                # For cross-attention, we need to project to common dimension
+                if self.cross_modal_fusion is None:
+                    text_dim = text_emb.shape[-1]
+                    self._build_cross_modal_fusion(text_dim)
+                # Use text projection only
+                combined = self.cross_modal_fusion.text_proj(text_emb)
+            else:
+                combined = text_emb
         elif clap_emb is not None:
             # Only CLAP embedding
             combined = clap_emb
         else:
             raise ValueError("At least one of text_emb or clap_emb must be provided")
         
-        # Build layers dynamically if needed
+        # Build processing layers dynamically if needed
         if self.backbone is None:
             self._auto_detect_and_build(combined)
         
@@ -211,6 +420,13 @@ class SharedBackbone(DynamicBackbone):
     
     def forward(self, x):
         """하위 호환성을 위한 forward"""
+        # x의 차원이 예상과 다를 수 있으므로 동적 처리
+        if x.shape[-1] != self.input_dim and self.text_dim != x.shape[-1]:
+            # 차원이 다르면 text_dim을 업데이트하고 백본을 다시 빌드
+            self.text_dim = x.shape[-1]
+            if self.backbone is None or (hasattr(self.backbone, '__len__') and len(self.backbone) > 0 and self.backbone[0].in_features != x.shape[-1]):
+                self._auto_detect_and_build(x)
+        
         return super().forward(text_emb=x, clap_emb=None)
     
     def get_layer_outputs(self, x):
@@ -241,9 +457,10 @@ class SharedBackbone(DynamicBackbone):
 
 class DynamicTransformerBackbone(nn.Module):
     """
-    동적 Transformer 백본 - 다양한 입력 차원을 처리하는 Transformer
+    Dynamic Transformer backbone with cross-attention fusion
     
-    CLAP embedding과 다양한 텍스트 인코더의 embedding을 모두 지원합니다.
+    Advanced transformer-based backbone supporting various text encoders 
+    and CLAP embeddings with sophisticated cross-attention mechanisms.
     """
     
     def __init__(self,
@@ -254,7 +471,7 @@ class DynamicTransformerBackbone(nn.Module):
                  num_heads: int = 8,
                  dim_head: int = 64,
                  dropout: float = 0.1,
-                 fusion_type: str = 'concat'):
+                 fusion_type: str = 'cross_attention'):
         super().__init__()
         
         if not ATTENTION_AVAILABLE:
@@ -265,12 +482,25 @@ class DynamicTransformerBackbone(nn.Module):
         self.hidden_dim = hidden_dim
         self.fusion_type = fusion_type
         
-        # 동적 입력 차원 계산
-        if fusion_type == 'concat':
+        # Enhanced fusion with cross-attention
+        if fusion_type == 'cross_attention':
+            if text_dim is not None:
+                self.cross_modal_fusion = CrossModalFusionBlock(
+                    text_dim=text_dim,
+                    clap_dim=clap_dim,
+                    hidden_dim=hidden_dim,
+                    num_heads=num_heads,
+                    dropout=dropout
+                )
+                input_dim = hidden_dim  # Output of cross-modal fusion
+            else:
+                self.cross_modal_fusion = None
+                input_dim = None
+        elif fusion_type == 'concat':
             if text_dim is not None:
                 input_dim = text_dim + clap_dim
             else:
-                input_dim = None  # 런타임에 결정
+                input_dim = None  # Runtime determination
         elif fusion_type == 'add':
             if text_dim is not None and text_dim != clap_dim:
                 self.text_proj = nn.Linear(text_dim, clap_dim)
@@ -279,16 +509,20 @@ class DynamicTransformerBackbone(nn.Module):
         else:
             input_dim = clap_dim
         
-        # Input projection (동적으로 생성될 수 있음)
+        # Input projection (dynamic if needed)
         if input_dim is not None:
-            self.input_proj = nn.Linear(input_dim, hidden_dim)
+            if fusion_type == 'cross_attention':
+                # No additional projection needed, fusion outputs hidden_dim
+                self.input_proj = nn.Identity()
+            else:
+                self.input_proj = nn.Linear(input_dim, hidden_dim)
         else:
             self.input_proj = None
         
         # Positional embedding
         self.pos_embedding = nn.Parameter(torch.randn(1, 1, hidden_dim) * 0.02)
         
-        # Transformer layers
+        # Multi-modal transformer layers
         self.transformer_layers = nn.ModuleList([
             BasicTransformerBlock(
                 dim=hidden_dim,
@@ -310,15 +544,32 @@ class DynamicTransformerBackbone(nn.Module):
         print(f"   CLAP dim: {clap_dim}")
         print(f"   Hidden dim: {hidden_dim}")
         print(f"   Fusion type: {fusion_type}")
+        if fusion_type == 'cross_attention':
+            print(f"   🎯 Using cross-attention transformer fusion!")
+    
+    def _build_cross_modal_fusion(self, text_dim: int):
+        """Dynamically build cross-modal fusion block"""
+        self.cross_modal_fusion = CrossModalFusionBlock(
+            text_dim=text_dim,
+            clap_dim=self.clap_dim,
+            hidden_dim=self.hidden_dim,
+            num_heads=8,
+            dropout=0.1
+        )
+        
+        if torch.cuda.is_available():
+            self.cross_modal_fusion = self.cross_modal_fusion.cuda()
+            
+        print(f"🔧 Dynamic cross-modal transformer fusion built: {text_dim} + {self.clap_dim} -> {self.hidden_dim}")
     
     def _build_input_projection(self, input_dim: int):
-        """동적으로 입력 프로젝션 생성"""
+        """Dynamically build input projection"""
         self.input_proj = nn.Linear(input_dim, self.hidden_dim)
         print(f"🔧 Dynamic input projection built: {input_dim} -> {self.hidden_dim}")
     
     def forward(self, text_emb: Optional[torch.Tensor] = None, clap_emb: Optional[torch.Tensor] = None):
         """
-        Forward pass through dynamic transformer backbone
+        Forward pass through dynamic transformer backbone with cross-attention
         
         Args:
             text_emb: Text embeddings (batch_size, text_dim)
@@ -327,9 +578,18 @@ class DynamicTransformerBackbone(nn.Module):
         Returns:
             features: Processed features (batch_size, hidden_dim)
         """
-        # Handle different input scenarios
+        # Handle different input scenarios with enhanced fusion
         if text_emb is not None and clap_emb is not None:
-            if self.fusion_type == 'concat':
+            if self.fusion_type == 'cross_attention':
+                # Build cross-modal fusion dynamically if needed
+                if self.cross_modal_fusion is None:
+                    text_dim = text_emb.shape[-1]
+                    self._build_cross_modal_fusion(text_dim)
+                
+                # Cross-attention fusion for rich multimodal understanding
+                combined = self.cross_modal_fusion(text_emb, clap_emb)
+                
+            elif self.fusion_type == 'concat':
                 combined = torch.cat([text_emb, clap_emb], dim=-1)
             elif self.fusion_type == 'add':
                 if hasattr(self, 'text_proj'):
@@ -356,14 +616,17 @@ class DynamicTransformerBackbone(nn.Module):
         
         batch_size = combined.shape[0]
         
-        # Project to hidden dimension
-        x = self.input_proj(combined)  # (batch_size, hidden_dim)
+        # Project to hidden dimension (unless already done by cross-attention)
+        if self.fusion_type == 'cross_attention':
+            x = combined  # Already in hidden_dim from cross-modal fusion
+        else:
+            x = self.input_proj(combined)  # (batch_size, hidden_dim)
         
         # Add positional embedding and expand to sequence
         x = x.unsqueeze(1)  # (batch_size, 1, hidden_dim)
         x = x + self.pos_embedding
         
-        # Pass through transformer layers
+        # Pass through transformer layers with enhanced representations
         for i, layer in enumerate(self.transformer_layers):
             x = layer(x)
         
@@ -886,10 +1149,10 @@ class ResidualBackbone(nn.Module):
 def create_backbone(backbone_type: str = 'simple', 
                    text_dim: Optional[int] = None,
                    clap_dim: int = 512,
-                   fusion_type: str = 'concat',
+                   fusion_type: str = 'cross_attention',  # Default to cross-attention
                    **kwargs):
     """
-    Factory function to create different backbone types with dynamic input support
+    Factory function to create different backbone types with cross-attention fusion
     
     Args:
         backbone_type: 'simple', 'dynamic', 'transformer', 'dynamic_transformer', 
@@ -897,15 +1160,18 @@ def create_backbone(backbone_type: str = 'simple',
         text_dim: Text embedding dimension (can be None for auto-detection)
         clap_dim: CLAP embedding dimension (default 512)
         fusion_type: How to combine embeddings ('concat', 'add', 'cross_attention')
+                    Defaults to 'cross_attention' for richer multimodal understanding
         **kwargs: Backbone-specific parameters
         
     Returns:
-        Backbone model instance
+        Backbone model instance with enhanced cross-attention capabilities
     """
     backbone_type = backbone_type.lower()
     
+    print(f"🎯 Creating {backbone_type} backbone with {fusion_type} fusion")
+    
     if backbone_type == 'simple':
-        # Use DynamicBackbone for simple case
+        # Use DynamicBackbone with cross-attention for simple case
         return DynamicBackbone(
             text_dim=text_dim,
             clap_dim=clap_dim,
@@ -920,7 +1186,7 @@ def create_backbone(backbone_type: str = 'simple',
             **kwargs
         )
     elif backbone_type == 'transformer':
-        # Use DynamicTransformerBackbone for transformer case
+        # Use DynamicTransformerBackbone with cross-attention
         return DynamicTransformerBackbone(
             text_dim=text_dim,
             clap_dim=clap_dim,
@@ -935,18 +1201,17 @@ def create_backbone(backbone_type: str = 'simple',
             **kwargs
         )
     elif backbone_type == 'residual':
-        # For residual, use simple fusion first then residual processing
-        if text_dim is not None:
-            if fusion_type == 'concat':
-                input_dim = text_dim + clap_dim
-            elif fusion_type == 'add':
-                input_dim = max(text_dim, clap_dim)
-            else:
-                input_dim = text_dim + clap_dim
-        else:
-            input_dim = kwargs.get('input_dim', 1024)
-        
-        return ResidualBackbone(input_dim=input_dim, **kwargs)
+        # Use DynamicBackbone with residual-style hidden layers
+        if 'hidden_dims' not in kwargs:
+            # Set default residual-style dimensions
+            kwargs['hidden_dims'] = [512, 512, 256, 128]
+        return DynamicBackbone(
+            text_dim=text_dim,
+            clap_dim=clap_dim,
+            fusion_type=fusion_type,
+            **kwargs
+        )
+            
     elif backbone_type == 'crossmodal':
         return CrossModalTransformerBackbone(
             text_dim=text_dim or 1024,
@@ -955,13 +1220,42 @@ def create_backbone(backbone_type: str = 'simple',
         )
     elif backbone_type == 'perceiver':
         if text_dim is not None:
-            if fusion_type == 'concat':
+            if fusion_type == 'cross_attention':
+                input_dim = 512  # Cross-attention output
+            elif fusion_type == 'concat':
                 input_dim = text_dim + clap_dim
             else:
                 input_dim = text_dim
         else:
             input_dim = kwargs.get('input_dim', 1024)
-        return PerceiverBackbone(input_dim=input_dim, **kwargs)
+            
+        if fusion_type == 'cross_attention' and text_dim is not None:
+            # Create combined cross-attention + perceiver backbone
+            class CrossAttentionPerceiverBackbone(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.cross_modal_fusion = CrossModalFusionBlock(
+                        text_dim=text_dim,
+                        clap_dim=clap_dim,
+                        hidden_dim=512,
+                        num_heads=8,
+                        dropout=kwargs.get('dropout', 0.1)
+                    )
+                    self.perceiver_backbone = PerceiverBackbone(input_dim=512, **kwargs)
+                    self.output_dim = self.perceiver_backbone.output_dim
+                
+                def forward(self, text_emb=None, clap_emb=None):
+                    if text_emb is not None and clap_emb is not None:
+                        fused = self.cross_modal_fusion(text_emb, clap_emb)
+                    elif text_emb is not None:
+                        fused = text_emb
+                    else:
+                        fused = clap_emb
+                    return self.perceiver_backbone(fused)
+            
+            return CrossAttentionPerceiverBackbone()
+        else:
+            return PerceiverBackbone(input_dim=input_dim, **kwargs)
     else:
         raise ValueError(f"Unknown backbone type: {backbone_type}. "
                         f"Available: simple, dynamic, transformer, dynamic_transformer, "

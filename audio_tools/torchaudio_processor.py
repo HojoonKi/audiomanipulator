@@ -57,13 +57,21 @@ class TorchAudioEqualizer(nn.Module):
         gain_db = gain_db.to(audio.device)
         q = q.to(audio.device)
         
-        # Squeeze single-element tensors
+        # Handle batch dimensions properly
+        if center_freq.dim() > 1:
+            center_freq = center_freq.squeeze(-1)  # [batch, 1] -> [batch]
+        if gain_db.dim() > 1:
+            gain_db = gain_db.squeeze(-1)  # [batch, 1] -> [batch]
+        if q.dim() > 1:
+            q = q.squeeze(-1)  # [batch, 1] -> [batch]
+        
+        # For batch processing, use the first item's parameters (simplification)
         if center_freq.dim() > 0:
-            center_freq = center_freq.squeeze()
+            center_freq = center_freq[0] if center_freq.numel() > 1 else center_freq.squeeze()
         if gain_db.dim() > 0:
-            gain_db = gain_db.squeeze()
+            gain_db = gain_db[0] if gain_db.numel() > 1 else gain_db.squeeze()
         if q.dim() > 0:
-            q = q.squeeze()
+            q = q[0] if q.numel() > 1 else q.squeeze()
         
         # Clamp parameters to safe ranges
         center_freq = torch.clamp(center_freq, 20.0, min(20000.0, self.sample_rate / 2.1))
@@ -126,9 +134,9 @@ class TorchAudioReverb(nn.Module):
         Apply reverb using differentiable convolution
         
         Args:
-            audio: Input audio tensor
-            wet_gain: Wet signal gain (0-1) - from decoder
-            dry_gain: Dry signal gain (0-1) - from decoder
+            audio: Input audio tensor [batch, channels, samples] or [batch, samples]
+            wet_gain: Wet signal gain (0-1) - from decoder [batch, 1] or scalar
+            dry_gain: Dry signal gain (0-1) - from decoder [batch, 1] or scalar
             
         Returns:
             Processed audio tensor with reverb
@@ -139,28 +147,51 @@ class TorchAudioReverb(nn.Module):
         if isinstance(dry_gain, (int, float)):
             dry_gain = torch.tensor(float(dry_gain), device=audio.device)
             
-        wet_gain = wet_gain.to(audio.device).squeeze()
-        dry_gain = dry_gain.to(audio.device).squeeze()
+        wet_gain = wet_gain.to(audio.device)
+        dry_gain = dry_gain.to(audio.device)
+        
+        # Handle batch dimensions properly
+        if wet_gain.dim() > 1:
+            wet_gain = wet_gain.squeeze(-1)  # [batch, 1] -> [batch]
+        if dry_gain.dim() > 1:
+            dry_gain = dry_gain.squeeze(-1)  # [batch, 1] -> [batch]
+        
+        # Ensure wet_gain and dry_gain match audio batch size
+        batch_size = audio.shape[0]
+        if wet_gain.dim() == 0:  # scalar
+            wet_gain = wet_gain.expand(batch_size)
+        if dry_gain.dim() == 0:  # scalar
+            dry_gain = dry_gain.expand(batch_size)
         
         # Clamp parameters
         wet_gain = torch.clamp(wet_gain, 0.0, 1.0)
         dry_gain = torch.clamp(dry_gain, 0.0, 1.0)
         
         try:
-            # Generate simple but effective impulse response
-            ir = self._generate_impulse_response(wet_gain, audio.device)
+            # Process each item in the batch
+            processed_batch = []
+            for i in range(batch_size):
+                audio_item = audio[i]  # [channels, samples] or [samples]
+                wet_item = wet_gain[i].item()  # scalar
+                dry_item = dry_gain[i].item()  # scalar
+                
+                # Generate impulse response for this item
+                ir = self._generate_impulse_response(wet_item, audio.device)
+                
+                # Apply convolution reverb
+                wet_signal = self._apply_convolution(audio_item.unsqueeze(0), ir).squeeze(0)
+                
+                # Mix dry and wet signals
+                processed_item = dry_item * audio_item + wet_item * wet_signal
+                processed_batch.append(processed_item)
             
-            # Apply convolution reverb
-            wet_signal = self._apply_convolution(audio, ir)
-            
-            # Mix dry and wet signals
-            return dry_gain * audio + wet_gain * wet_signal
+            return torch.stack(processed_batch)
             
         except Exception as e:
             print(f"⚠️ Reverb processing failed: {e}, returning original audio")
             return audio
     
-    def _generate_impulse_response(self, wet_gain: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def _generate_impulse_response(self, wet_gain: float, device: torch.device) -> torch.Tensor:
         """Generate a simple reverb impulse response"""
         # Simple exponentially decaying noise for reverb
         ir_length = min(4410, self.max_ir_length)  # 0.1 seconds at 44.1kHz
@@ -257,9 +288,9 @@ class TorchAudioDistortion(nn.Module):
         Apply distortion using waveshaping
         
         Args:
-            audio: Input audio tensor
-            gain: Distortion gain (1-10) - from decoder
-            bias: Distortion bias (-1 to 1) - from decoder
+            audio: Input audio tensor [batch, channels, samples] or [batch, samples]
+            gain: Distortion gain (1-10) - from decoder [batch, 1] or scalar
+            bias: Distortion bias (-1 to 1) - from decoder [batch, 1] or scalar
             
         Returns:
             Processed audio tensor with distortion
@@ -270,14 +301,35 @@ class TorchAudioDistortion(nn.Module):
         if isinstance(bias, (int, float)):
             bias = torch.tensor(float(bias), device=audio.device)
             
-        gain = gain.to(audio.device).squeeze()
-        bias = bias.to(audio.device).squeeze()
+        gain = gain.to(audio.device)
+        bias = bias.to(audio.device)
+        
+        # Handle batch dimensions properly  
+        if gain.dim() > 1:
+            gain = gain.squeeze(-1)  # [batch, 1] -> [batch]
+        if bias.dim() > 1:
+            bias = bias.squeeze(-1)  # [batch, 1] -> [batch]
+        
+        # Ensure parameters match audio batch size
+        batch_size = audio.shape[0]
+        if gain.dim() == 0:  # scalar
+            gain = gain.expand(batch_size)
+        if bias.dim() == 0:  # scalar
+            bias = bias.expand(batch_size)
         
         # Clamp parameters
         gain = torch.clamp(gain, 1.0, 10.0)
         bias = torch.clamp(bias, -1.0, 1.0)
         
         try:
+            # Reshape for broadcasting: [batch] -> [batch, 1, 1] or [batch, 1] depending on audio shape
+            if audio.dim() == 3:  # [batch, channels, samples]
+                gain = gain.unsqueeze(-1).unsqueeze(-1)  # [batch, 1, 1]  
+                bias = bias.unsqueeze(-1).unsqueeze(-1)  # [batch, 1, 1]
+            elif audio.dim() == 2:  # [batch, samples]
+                gain = gain.unsqueeze(-1)  # [batch, 1]
+                bias = bias.unsqueeze(-1)  # [batch, 1]
+            
             # Apply gain and bias
             processed = audio * gain + bias
             
@@ -309,8 +361,8 @@ class TorchAudioPitchShift(nn.Module):
         Apply pitch shifting using resampling
         
         Args:
-            audio: Input audio tensor
-            pitch_shift: Pitch shift ratio (0.5-2.0) - from decoder
+            audio: Input audio tensor [batch, channels, samples] or [batch, samples]
+            pitch_shift: Pitch shift ratio (0.5-2.0) - from decoder [batch, 1] or scalar
             
         Returns:
             Processed audio tensor with pitch shift
@@ -319,13 +371,22 @@ class TorchAudioPitchShift(nn.Module):
         if isinstance(pitch_shift, (int, float)):
             pitch_shift = torch.tensor(float(pitch_shift), device=audio.device)
             
-        pitch_shift = pitch_shift.to(audio.device).squeeze()
+        pitch_shift = pitch_shift.to(audio.device)
+        
+        # Handle batch dimensions properly
+        if pitch_shift.dim() > 1:
+            pitch_shift = pitch_shift.squeeze(-1)  # [batch, 1] -> [batch]
+        
+        # For batch processing, use the first item's pitch shift (simplification)
+        if pitch_shift.dim() > 0:
+            pitch_shift = pitch_shift[0] if pitch_shift.numel() > 1 else pitch_shift.squeeze()
         
         # Clamp parameters (0.5 = down octave, 2.0 = up octave)
         pitch_shift = torch.clamp(pitch_shift, 0.5, 2.0)
         
         # Skip processing if pitch shift is minimal
-        if abs(pitch_shift - 1.0) < 0.01:
+        pitch_shift_value = pitch_shift.item() if pitch_shift.dim() == 0 else pitch_shift
+        if abs(pitch_shift_value - 1.0) < 0.01:
             return audio
         
         try:

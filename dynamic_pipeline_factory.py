@@ -30,7 +30,7 @@ class DynamicPipelineFactory:
         'e5-large': {
             'type': 'e5-large',
             'config': {'model_name': 'intfloat/e5-large-v2'},
-            'description': '최고 성능 오픈소스 인코더 (1024D)'
+            'description': '최고 성능 오픈소스 인코더 (1280D)'
         },
         'clap': {
             'type': 'clap',
@@ -80,17 +80,20 @@ class DynamicPipelineFactory:
         if backbone_config is None:
             backbone_config = {}
         
-        # 텍스트 인코더 차원 자동 설정
+        # 텍스트 인코더 차원 자동 설정 (실제 출력 차원)
         text_dim_map = {
             'sentence-transformer-mini': 384,
             'sentence-transformer-large': 768,
-            'e5-large': 1024,
+            'e5-large': 1280,  # 실제 e5-large-v2는 1280차원
             'clap': 512
         }
         
-        # 백본에 동적 차원 정보 전달
+        # 백본에 동적 차원 정보 전달 (추정값, 실제는 런타임에 결정됨)
         if encoder_preset in text_dim_map:
             backbone_config['text_dim'] = text_dim_map[encoder_preset]
+        else:
+            # 알 수 없는 인코더인 경우 None으로 설정하여 동적 감지 활성화
+            backbone_config['text_dim'] = None
         
         if use_clap:
             backbone_config['clap_dim'] = 512
