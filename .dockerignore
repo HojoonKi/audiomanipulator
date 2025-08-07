@@ -1,0 +1,38 @@
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+audio_env/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large files
+checkpoints/*.pt
+checkpoints/*.pth
+output/*
+!output/.gitkeep
+wandb/
+audio_dataset/
+*.wav
+*.mp3
+*.flac
+
+# Docker files
+Dockerfile*
+docker-compose*
+.dockerignore

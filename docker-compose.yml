@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  audiomanipulator:
+    build: .
+    container_name: audiomanipulator
+    
+    # GPU support (uncomment for GPU)
+    runtime: nvidia
+    
+    volumes:
+      - .:/home/audiomanipulator/app
+      - ./checkpoints:/home/audiomanipulator/app/checkpoints
+      - ./output:/home/audiomanipulator/app/output
+      - ./audio_dataset:/home/audiomanipulator/app/audio_dataset:ro
+    
+    working_dir: /home/audiomanipulator/app
+    stdin_open: true
+    tty: true
+    
+    environment:
+      - PYTHONPATH=/home/audiomanipulator/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=all

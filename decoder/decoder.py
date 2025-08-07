@@ -63,7 +63,7 @@ class EffectDecoderBlock(nn.Module):
                 heads[f'band_{band}_freq'] = nn.Linear(hidden_dim, 1)
                 heads[f'band_{band}_gain'] = nn.Linear(hidden_dim, 1)
                 heads[f'band_{band}_q'] = nn.Linear(hidden_dim, 1)
-                heads[f'band_{band}_filter_type'] = nn.Linear(hidden_dim, 5)  # 5 filter types
+                heads[f'band_{band}_filter_type'] = nn.Linear(hidden_dim, 3)  # 3 filter types: low-shelf, bell, high-shelf
             
         elif self.effect_name == "reverb":
             # Reverb: Complete set of parameters for realistic reverb
@@ -134,7 +134,7 @@ class EffectDecoderBlock(nn.Module):
                 # Q factor: 0.1 to 10.0
                 return torch.sigmoid(raw_value) * 9.9 + 0.1
             elif "filter_type" in param_name:
-                # Filter type: softmax over 5 types (bell, high_pass, low_pass, high_shelf, low_shelf)
+                # Filter type: softmax over 3 types (low-shelf, bell, high-shelf)
                 return torch.softmax(raw_value, dim=-1)
                 
         elif self.effect_name == "reverb":
@@ -346,9 +346,6 @@ class ParallelPresetDecoder(nn.Module):
         """Format EQ parameters into differentiable format"""
         eq_params = {}
         
-        # Filter type mapping
-        filter_types = ["bell", "high_pass", "low_pass", "high_shelf", "low_shelf"]
-        
         # Extract parameters for each band
         for band in range(1, 6):  # 5 bands
             band_key = f"band_{band}"
@@ -398,7 +395,7 @@ class ParallelPresetDecoder(nn.Module):
     # Backward compatibility: pedalboard format methods
     def _format_eq_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format EQ parameters into pedalboard format (backward compatibility)"""
-        filter_types = ["bell", "high_pass", "low_pass", "high_shelf", "low_shelf"]
+        filter_types = ["low-shelf", "bell", "high-shelf"]  # Guide preset과 일치하는 3개 타입
         
         pedalboard_params = {}
         for band in range(1, 6):  # All 5 bands

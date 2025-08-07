@@ -15,7 +15,89 @@ This project aims to develop an **AI model that automatically generates audio ef
 3. **Cross-Attention Multimodal Fusion**: Sophisticated bidirectional attention between text and audio embeddings for richer understanding
 4. **Parallel Decoder Architecture**: Parallel prediction of each effect (EQ, Reverb, Distortion, Pitch) with enhanced backbone features
 
-## 🛠️ Environment Setup
+## � Quick Start with Docker (Recommended)
+
+### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) (20.10+)
+- [Docker Compose](https://docs.docker.com/compose/install/) (1.29+)
+- For GPU support: [NVIDIA Docker](https://github.com/NVIDIA/nvidia-docker) (optional but recommended)
+
+### 🚀 One-Command Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/HojoonKi/audiomanipulator.git
+cd audiomanipulator
+
+# 2. Build and start the container
+docker-compose up -d
+
+# 3. Enter the interactive container
+docker-compose exec audiomanipulator bash
+
+# 4. Test the model (inside container)
+python test.py \
+    --input_audio audio_examples/test.wav \
+    --text_prompt "add warm reverb and make it sound spacious"
+```
+
+### 🎛️ Docker Service Options
+
+#### Basic Usage (CPU/GPU)
+```bash
+# Start main service
+docker-compose up -d audiomanipulator
+
+# Enter interactive shell
+docker-compose exec audiomanipulator bash
+
+# View logs
+docker-compose logs -f audiomanipulator
+
+# Stop services
+docker-compose down
+```
+
+#### Training Mode (GPU Recommended)
+```bash
+# Uncomment GPU settings in docker-compose.yml first
+# Then start training service
+docker-compose --profile training up audiomanipulator-train
+
+# Monitor training progress
+docker-compose logs -f audiomanipulator-train
+```
+
+#### Development Mode with Jupyter
+```bash
+# Start Jupyter notebook service
+docker-compose --profile notebook up -d audiomanipulator-notebook
+
+# Access notebook at http://localhost:8888
+# (No token required in this setup)
+```
+
+### 🔧 GPU Support Setup
+
+For NVIDIA GPU support, uncomment the GPU-related lines in `docker-compose.yml`:
+
+```yaml
+# Uncomment these lines:
+runtime: nvidia
+environment:
+  - NVIDIA_VISIBLE_DEVICES=all
+```
+
+Then verify GPU access:
+```bash
+docker-compose exec audiomanipulator nvidia-smi
+docker-compose exec audiomanipulator python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+```
+
+## 🛠️ Alternative Installation Methods
+
+<details>
+<summary>📋 Native Installation (Click to expand)</summary>
 
 ### Option 1: Using Conda (Recommended)
 
@@ -40,8 +122,6 @@ pip install -r requirements.txt
 ```bash
 # 1. Create virtual environment with Python 3.10+ (recommended)
 python3.10 -m venv audio_env
-# Or if you have Python 3.10+ as default:
-# python -m venv audio_env
 source audio_env/bin/activate  # On Windows: audio_env\Scripts\activate
 
 # 2. Upgrade pip and install basic tools
@@ -55,78 +135,320 @@ cd audiomanipulator
 pip install -r requirements.txt
 ```
 
-### Option 3: Manual Installation
-
-```bash
-# 1. Create conda environment (recommended)
-conda create -n audio_tools python=3.10 -y
-conda activate audio_tools
-# Or create pip virtual environment:
-# python3.10 -m venv audio_env && source audio_env/bin/activate
-
-# 2. Clone the repository
-git clone https://github.com/HojoonKi/audiomanipulator.git
-cd audiomanipulator
-
-# 3. Install core dependencies
-pip install torch torchvision torchaudio
-pip install librosa soundfile
-pip install transformers sentence-transformers
-pip install wandb tqdm
-pip install pedalboard  # For audio effects processing
-
-# 4. Install optional dependencies for advanced features
-pip install accelerate  # For model acceleration
-pip install einops      # For tensor operations
-```
-
-### System Requirements
-
+### System Requirements (Native)
 - **Python**: 3.10+ (recommended, minimum 3.8)
 - **GPU**: CUDA-compatible GPU recommended (for training)
 - **RAM**: Minimum 8GB, 16GB+ recommended for training
 - **Storage**: At least 5GB free space for models and datasets
 - **OS**: Linux, macOS, or Windows with WSL2
 
-### Verification
+</details>
 
-Test your installation:
+## ⚡ Quick Reference
+
+### Docker Commands Cheat Sheet
 
 ```bash
-python -c "
-import torch
-import librosa
-import transformers
-print('✅ All core dependencies installed successfully!')
-print(f'PyTorch version: {torch.__version__}')
-print(f'CUDA available: {torch.cuda.is_available()}')
-"
+# 🚀 Essential Commands
+docker-compose up -d                    # Start all services
+docker-compose exec audiomanipulator bash  # Enter container
+docker-compose logs -f audiomanipulator    # View logs
+docker-compose down                      # Stop all services
+
+# 🎯 Service-Specific
+docker-compose --profile training up    # Training mode
+docker-compose --profile notebook up -d # Jupyter notebook
+docker-compose restart audiomanipulator # Restart main service
+
+# 🔍 Debug Commands
+docker-compose ps                       # Check running services
+docker-compose exec audiomanipulator nvidia-smi  # Check GPU
+docker system prune -f                 # Clean up (careful!)
 ```
 
-### Quick Start
+### Model Parameters & Effects
 
-After installation, you can immediately test the model:
+| Effect Type | Parameters | Description |
+|-------------|------------|-------------|
+| **Equalizer** | filter_type (3 types)<br/>freq (20-20kHz)<br/>gain (-20 to +20 dB)<br/>Q factor (0.1-10) | 3-band EQ: low-shelf, bell, high-shelf |
+| **Reverb** | room_size (0-1)<br/>damping (0-1)<br/>wet_level (0-1)<br/>dry_level (0-1) | Environmental reverb simulation |
+| **Distortion** | drive (0-1)<br/>gain (0-1) | Analog-style saturation |
+| **Pitch** | pitch_shift (-12 to +12 semitones) | Pitch shifting without tempo change |
+
+### Environment Variables
 
 ```bash
-# Make sure your environment is activated
-conda activate audio_tools  # or source audio_env/bin/activate
+# Optional Docker environment variables
+export CUDA_VISIBLE_DEVICES=0          # Specify GPU
+export TORCH_HOME=/app/cache/torch      # PyTorch model cache
+export HF_HOME=/app/cache/huggingface   # HuggingFace cache
+export WANDB_CACHE_DIR=/app/cache/wandb # Weights & Biases cache
+```
 
-# Navigate to project directory (if not already there)
+## 🔬 Model Architecture
+
+### Core Components
+
+1. **Text Encoder**: 
+   - SentenceTransformer (`all-mpnet-base-v2`) for semantic understanding
+   - CLAP encoder for audio-text alignment
+
+2. **Audio Encoder**: 
+   - Mel-spectrogram features with differentiable processing
+   - Cross-attention fusion with text embeddings
+
+3. **Parallel Decoder**:
+   - Separate heads for each effect type
+   - Constraint-aware parameter generation
+   - 3-class filter type classification for EQ
+
+### Training Process
+
+```bash
+# In Docker container
+python train.py \
+    --batch_size 32 \
+    --learning_rate 1e-4 \
+    --epochs 100 \
+    --save_checkpoint_every 10
+
+# With custom dataset
+python train.py \
+    --dataset_path /app/custom_dataset \
+    --description_path /app/custom_descriptions.txt
+```
+
+## 📁 Project Structure
+
+```
+AudioManipulator/
+├── 🐳 Docker Configuration
+│   ├── Dockerfile                 # Main container definition
+│   ├── docker-compose.yml         # Multi-service orchestration
+│   └── .dockerignore              # Build context exclusions
+├── 🎵 Audio Processing
+│   ├── audio_tools/               # Audio I/O and preprocessing
+│   ├── audio_dataset/             # Training data (instrumentals/speech)
+│   └── output/                    # Generated audio outputs
+├── 🧠 Model Components
+│   ├── model/                     # Neural network architectures
+│   ├── encoder/                   # Text encoding modules
+│   ├── decoder/                   # Parameter generation
+│   └── utils/                     # Parameter mapping utilities
+├── 📊 Training & Evaluation
+│   ├── train.py                   # Main training script
+│   ├── test.py                    # Inference and testing
+│   ├── pipeline.py               # Complete processing pipeline
+│   └── checkpoints/              # Saved model weights
+├── 📝 Data & Descriptions
+│   ├── descriptions/              # Text-effect pair datasets
+│   └── prompt/                    # Template prompts
+└── 📚 Documentation
+    ├── README.md                  # This file
+    └── requirements.txt           # Python dependencies
+```
+
+## 🚀 Advanced Usage
+
+### Custom Dataset Training
+
+1. **Prepare Your Data**:
+   ```bash
+   # In Docker container
+   mkdir -p /app/custom_dataset/audio
+   mkdir -p /app/custom_dataset/descriptions
+   
+   # Copy your audio files
+   cp /host/my_audio/* /app/custom_dataset/audio/
+   
+   # Create description file
+   echo "warm vintage sound with analog saturation" > /app/custom_dataset/descriptions/custom.txt
+   ```
+
+2. **Train with Custom Data**:
+   ```bash
+   python train.py \
+       --dataset_path /app/custom_dataset \
+       --description_path /app/custom_dataset/descriptions/custom.txt \
+       --epochs 50
+   ```
+
+### API Integration
+
+```python
+# Example Python integration (in container)
+from pipeline import AudioManipulatorPipeline
+
+# Initialize pipeline
+pipeline = AudioManipulatorPipeline(device="cuda")
+
+# Process audio
+result = pipeline.process(
+    audio_path="/app/input.wav",
+    text_prompt="bright and crisp studio sound",
+    output_path="/app/output.wav"
+)
+
+print(f"Generated parameters: {result['parameters']}")
+```
+
+### Batch Processing
+
+```bash
+# Process multiple files with Docker
+cat audio_list.txt | while read audio_file description; do
+    docker-compose exec audiomanipulator python test.py \
+        --input_audio "$audio_file" \
+        --text_prompt "$description" \
+        --output_audio "output_$(basename $audio_file)"
+done
+```
+
+## 🎮 Interactive Development
+
+### Jupyter Notebook Environment
+
+```bash
+# Start Jupyter service
+docker-compose --profile notebook up -d audiomanipulator-notebook
+
+# Access at http://localhost:8888
+# Default password: audiomanipulator
+```
+
+The notebook environment includes:
+- Pre-configured audio processing tools
+- Model experimentation notebooks
+- Real-time parameter visualization
+- Interactive effect demonstration
+
+### Development Workflow
+
+```bash
+# 1. Code with live reload
+docker-compose exec audiomanipulator bash
+cd /app && python -m pytest tests/  # Run tests
+
+# 2. Train with monitoring
+docker-compose --profile training up audiomanipulator-train
+
+# 3. Experiment in Jupyter
+# Visit http://localhost:8888 and open groundit_demo.ipynb
+```
+
+## 🤝 Contributing
+
+### Development Setup
+
+```bash
+# Clone and setup development environment
+git clone https://github.com/HojoonKi/audiomanipulator.git
 cd audiomanipulator
 
-# Download example audio (optional)
-mkdir -p audio_examples
-wget -O audio_examples/test.wav "https://www.soundjay.com/misc/sounds/beep-07a.wav"
+# Start development container
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
-# Test basic functionality
-python test.py \
-    --input_audio audio_examples/test.wav \
-    --text_prompt "make it sound warmer with reverb"
-
-# If you get import errors, double-check your environment:
-# conda activate audio_tools  # or source audio_env/bin/activate
-# pip list | grep torch  # Verify PyTorch installation
+# Install pre-commit hooks (optional)
+docker-compose exec audiomanipulator pre-commit install
 ```
+
+### Code Style
+
+```bash
+# Format code (in container)
+black .
+isort .
+flake8 .
+```
+
+## 📋 Troubleshooting
+
+### Common Docker Issues
+
+**Container won't start**:
+```bash
+# Check logs
+docker-compose logs audiomanipulator
+
+# Rebuild if needed
+docker-compose build --no-cache audiomanipulator
+```
+
+**GPU not detected**:
+```bash
+# Verify NVIDIA Docker
+docker run --rm --gpus all nvidia/cuda:11.8-base nvidia-smi
+
+# Check docker-compose.yml has GPU config uncommented
+```
+
+**Permission issues**:
+```bash
+# Fix volume permissions
+sudo chown -R $USER:$USER output/
+sudo chown -R $USER:$USER checkpoints/
+```
+
+**Out of memory**:
+```bash
+# Reduce batch size in training
+python train.py --batch_size 16  # Instead of 32
+
+# Or use CPU mode
+python train.py --device cpu
+```
+
+### Native Installation Issues
+
+<details>
+<summary>Click to expand native installation troubleshooting</summary>
+
+**ImportError: No module named 'torch'**:
+```bash
+# Verify environment activation
+conda activate audio_tools  # or source audio_env/bin/activate
+pip list | grep torch
+```
+
+**CUDA not available**:
+```bash
+# Check CUDA installation
+nvidia-smi
+python -c "import torch; print(torch.cuda.is_available())"
+
+# Reinstall PyTorch with CUDA
+pip uninstall torch torchvision torchaudio
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+**Audio processing errors**:
+```bash
+# Install system audio libraries (Ubuntu/Debian)
+sudo apt-get update
+sudo apt-get install libsndfile1 ffmpeg
+
+# macOS
+brew install libsndfile ffmpeg
+```
+
+</details>
+
+## 📜 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- **AudioLDM2**: Advanced audio generation model integration
+- **GrounDiT**: Grounding and text-to-audio synthesis
+- **Pedalboard**: Real-time audio effects processing
+- **HuggingFace Transformers**: Text encoding and model hosting
+
+---
+
+**📞 Support**: For issues or questions, please create a GitHub issue or contact the development team.
+
+**🔄 Updates**: This project is actively maintained. Check for updates regularly.
 
 ## 🚀 Model Testing Usage
 

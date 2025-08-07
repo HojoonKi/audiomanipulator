@@ -607,23 +607,33 @@ class TrainingManager:
             return self.create_dummy_loss()
     
     def extract_guide_values(self, guide_preset):
-        """Guide preset에서 28개 값 추출 - 사전 검증된 preset 사용"""
+        """Guide preset에서 28개 값 추출 - fined_presets_filtered.py 구조에 맞춤"""
         # 데이터셋에서 이미 검증됨 - 바로 값 추출
         values = []
         
-        # EQ (20개): center_freq, gain_db, q, filter_type × 5
-        eq_section = guide_preset['eq']
-        for i in range(1, 6):  # band_1 ~ band_5
-            band = eq_section[f'band_{i}']
+        # Filter type 매핑 (문자열 -> 숫자)
+        filter_type_mapping = {
+            "low-shelf": 0,
+            "bell": 1, 
+            "high-shelf": 2
+        }
+        
+        # EQ (20개): frequency, gain, q, filter_type × 5
+        eq_section = guide_preset['Equalizer']  # 리스트 형태
+        for eq_band in eq_section:  # 5개 밴드
+            # filter_type을 숫자로 변환
+            filter_type_str = eq_band['filter_type']
+            filter_type_num = filter_type_mapping.get(filter_type_str, 1)  # 기본값: bell (1)
+            
             values.extend([
-                band['center_freq'],
-                band['gain_db'], 
-                band['q'],
-                band['filter_type']
+                eq_band['frequency'],
+                eq_band['gain'], 
+                eq_band['q'],
+                filter_type_num
             ])
         
         # Reverb (5개)
-        reverb = guide_preset['reverb']
+        reverb = guide_preset['Reverb']
         values.extend([
             reverb['room_size'],
             reverb['pre_delay'], 
@@ -633,14 +643,14 @@ class TrainingManager:
         ])
         
         # Distortion (2개)
-        dist = guide_preset['distortion']
+        dist = guide_preset['Distortion']
         values.extend([
             dist['gain'],
             dist['color']
         ])
         
         # Pitch (1개)
-        pitch = guide_preset['pitch']
+        pitch = guide_preset['Pitch']
         values.append(pitch['scale'])
         
         return values  # 28개 값 보장됨

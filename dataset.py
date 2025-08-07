@@ -278,51 +278,49 @@ class PresetDataset(Dataset):
         return presets
     
     def _is_valid_preset(self, preset):
-        """Preset 유효성 검증 (PresetDataset용)"""
+        """Preset 유효성 검증 (fined_presets_filtered.py 형식에 맞춤)"""
         if not preset or not isinstance(preset, dict):
             return False
         
-        # 필수 키들이 있는지 확인
-        required_sections = ['eq', 'reverb', 'distortion', 'pitch']
+        # 실제 파일 구조에 맞는 필수 키들 확인
+        required_sections = ['Equalizer', 'Reverb', 'Distortion', 'Pitch']
         for section in required_sections:
             if section not in preset:
                 return False
             
-            section_data = preset[section]
-            if not isinstance(section_data, dict):
-                return False
-        
-        # EQ 섹션 상세 검증
-        eq_section = preset['eq']
-        expected_eq_keys = ['band_1', 'band_2', 'band_3', 'band_4', 'band_5']
-        for band in expected_eq_keys:
-            if band not in eq_section:
-                return False
-            band_data = eq_section[band]
-            if not isinstance(band_data, dict):
-                return False
-            # EQ 밴드 필수 파라미터 체크
-            band_required = ['center_freq', 'gain_db', 'q', 'filter_type']
-            for param in band_required:
-                if param not in band_data:
+            if section == 'Equalizer':
+                # Equalizer는 리스트 형태
+                if not isinstance(preset[section], list) or len(preset[section]) != 5:
+                    return False
+                # 각 EQ 밴드 검증
+                for eq_band in preset[section]:
+                    if not isinstance(eq_band, dict):
+                        return False
+                    eq_required = ['frequency', 'gain', 'q', 'filter_type']
+                    for param in eq_required:
+                        if param not in eq_band:
+                            return False
+            else:
+                # 나머지는 딕셔너리 형태
+                if not isinstance(preset[section], dict):
                     return False
         
-        # Reverb 섹션 검증
-        reverb_section = preset['reverb']
+        # Reverb 섹션 상세 검증
+        reverb_section = preset['Reverb']
         reverb_required = ['room_size', 'pre_delay', 'diffusion', 'damping', 'wet_gain']
         for param in reverb_required:
             if param not in reverb_section:
                 return False
         
         # Distortion 섹션 검증
-        dist_section = preset['distortion']
+        dist_section = preset['Distortion']
         dist_required = ['gain', 'color']
         for param in dist_required:
             if param not in dist_section:
                 return False
         
         # Pitch 섹션 검증
-        pitch_section = preset['pitch']
+        pitch_section = preset['Pitch']
         if 'scale' not in pitch_section:
             return False
         
