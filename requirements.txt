@@ -1,0 +1,30 @@
+# Core ML/Audio Dependencies
+torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+librosa>=0.10.0
+soundfile>=0.12.1
+
+# Text Processing & Transformers
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+tokenizers>=0.13.0
+
+# Audio Processing
+pedalboard>=0.7.0
+crepe>=0.0.12
+
+# Training & Logging
+wandb>=0.15.0
+tqdm>=4.65.0
+accelerate>=0.20.0
+
+# Utilities
+einops>=0.7.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+Pillow>=9.5.0
+
+# Optional: For enhanced performance
+# numba>=0.57.0  # Uncomment if librosa numba acceleration is needed

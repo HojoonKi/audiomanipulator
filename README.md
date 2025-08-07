@@ -15,6 +15,119 @@ This project aims to develop an **AI model that automatically generates audio ef
 3. **Cross-Attention Multimodal Fusion**: Sophisticated bidirectional attention between text and audio embeddings for richer understanding
 4. **Parallel Decoder Architecture**: Parallel prediction of each effect (EQ, Reverb, Distortion, Pitch) with enhanced backbone features
 
+## 🛠️ Environment Setup
+
+### Option 1: Using Conda (Recommended)
+
+```bash
+# 1. Create conda environment with Python 3.10
+conda create -n audio_tools python=3.10 -y
+conda activate audio_tools
+
+# 2. Clone the repository
+git clone https://github.com/HojoonKi/audiomanipulator.git
+cd audiomanipulator
+
+# 3. Install dependencies from environment.yml
+conda env update -f environment.yml
+
+# 4. Install additional pip packages if needed
+pip install -r requirements.txt
+```
+
+### Option 2: Using pip only
+
+```bash
+# 1. Create virtual environment with Python 3.10+ (recommended)
+python3.10 -m venv audio_env
+# Or if you have Python 3.10+ as default:
+# python -m venv audio_env
+source audio_env/bin/activate  # On Windows: audio_env\Scripts\activate
+
+# 2. Upgrade pip and install basic tools
+pip install --upgrade pip setuptools wheel
+
+# 3. Clone the repository
+git clone https://github.com/HojoonKi/audiomanipulator.git
+cd audiomanipulator
+
+# 4. Install dependencies
+pip install -r requirements.txt
+```
+
+### Option 3: Manual Installation
+
+```bash
+# 1. Create conda environment (recommended)
+conda create -n audio_tools python=3.10 -y
+conda activate audio_tools
+# Or create pip virtual environment:
+# python3.10 -m venv audio_env && source audio_env/bin/activate
+
+# 2. Clone the repository
+git clone https://github.com/HojoonKi/audiomanipulator.git
+cd audiomanipulator
+
+# 3. Install core dependencies
+pip install torch torchvision torchaudio
+pip install librosa soundfile
+pip install transformers sentence-transformers
+pip install wandb tqdm
+pip install pedalboard  # For audio effects processing
+
+# 4. Install optional dependencies for advanced features
+pip install accelerate  # For model acceleration
+pip install einops      # For tensor operations
+```
+
+### System Requirements
+
+- **Python**: 3.10+ (recommended, minimum 3.8)
+- **GPU**: CUDA-compatible GPU recommended (for training)
+- **RAM**: Minimum 8GB, 16GB+ recommended for training
+- **Storage**: At least 5GB free space for models and datasets
+- **OS**: Linux, macOS, or Windows with WSL2
+
+### Verification
+
+Test your installation:
+
+```bash
+python -c "
+import torch
+import librosa
+import transformers
+print('✅ All core dependencies installed successfully!')
+print(f'PyTorch version: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+"
+```
+
+### Quick Start
+
+After installation, you can immediately test the model:
+
+```bash
+# Make sure your environment is activated
+conda activate audio_tools  # or source audio_env/bin/activate
+
+# Navigate to project directory (if not already there)
+cd audiomanipulator
+
+# Download example audio (optional)
+mkdir -p audio_examples
+wget -O audio_examples/test.wav "https://www.soundjay.com/misc/sounds/beep-07a.wav"
+
+# Test basic functionality
+python test.py \
+    --input_audio audio_examples/test.wav \
+    --text_prompt "make it sound warmer with reverb"
+
+# If you get import errors, double-check your environment:
+# conda activate audio_tools  # or source audio_env/bin/activate
+# pip list | grep torch  # Verify PyTorch installation
+```
+
 ## 🚀 Model Testing Usage
 
 ### Basic Usage
@@ -160,9 +273,7 @@ output/
     },
     "distortion": {
       "gain": 3.2,
-      "bias": 0.1,
-      "tone": 0.6,
-      "mix": 0.3
+      "color": 0.1,
     },
     "pitch": {
       "pitch_shift": 1.0,
@@ -190,7 +301,7 @@ output/
    - **Self-Attention Refinement**: Further processing for enhanced representations
    - **Learned Fusion**: Context-dependent combination (not fixed like concatenation)
 3. **Parallel Effect Decoders**: 
-   - EQ Decoder: 5 bands × 3 parameters = 15 outputs
+   - EQ Decoder: 5 bands × 4 parameters = 20 outputs
    - Reverb Decoder: 6 parameters (room_size, pre_delay, diffusion, damping, wet_gain, dry_gain)
    - Distortion Decoder: 4 parameters (gain, bias, tone, mix)
    - Pitch Decoder: 3 parameters (pitch_shift, formant_shift, mix)
@@ -201,6 +312,39 @@ output/
 - **Context-Dependent Fusion**: Learned attention weights adapt to different audio concepts (vs. fixed concatenation/addition)
 - **Richer Multimodal Understanding**: Sophisticated interaction between text semantics and audio characteristics
 - **Better Parameter Generation**: More nuanced audio effect parameters through enhanced cross-modal representations
+
+## 📁 Project Structure
+
+```
+AudioManipulator/
+├── 📄 README.md                    # Project documentation
+├── 📄 requirements.txt             # Python dependencies
+├── 📄 environment.yml              # Conda environment file
+├── 📄 train.py                     # Main training script
+├── 📄 test.py                      # Model testing script
+├── 📄 dynamic_pipeline_factory.py  # Model architecture factory
+├── 📄 dataset.py                   # Data loading utilities
+├── 📁 encoder/                     # Text encoders
+│   └── text_encoder.py
+├── 📁 decoder/                     # Audio effect decoders
+│   └── decoder.py
+├── 📁 model/                       # Core model components
+│   ├── attention.py               # Cross-attention mechanisms
+│   └── backbone_model.py          # Enhanced backbone with fusion
+├── 📁 audio_tools/                # Audio processing utilities
+│   ├── audio_tools.py
+│   └── torchaudio_processor.py
+├── 📁 utils/                      # Utility functions
+│   └── parameter_mapper.py
+├── 📁 descriptions/               # Training descriptions
+│   ├── descriptions.txt
+│   └── fined_presets_filtered.py
+├── 📁 audio_dataset/             # Training audio data
+│   ├── instrumentals/
+│   └── speech/
+├── 📁 checkpoints/               # Model checkpoints
+└── 📁 output/                    # Generated results
+```
 
 ## 🎯 Performance Metrics
 

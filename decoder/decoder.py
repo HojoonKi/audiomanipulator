@@ -58,11 +58,12 @@ class EffectDecoderBlock(nn.Module):
         heads = nn.ModuleDict()
         
         if self.effect_name == "equalizer":
-            # EQ: 5 bands with frequency, gain, Q for each band
+            # EQ: 5 bands with frequency, gain, Q, filter_type for each band
             for band in range(1, 6):  # 5 bands: band_1 to band_5
                 heads[f'band_{band}_freq'] = nn.Linear(hidden_dim, 1)
                 heads[f'band_{band}_gain'] = nn.Linear(hidden_dim, 1)
                 heads[f'band_{band}_q'] = nn.Linear(hidden_dim, 1)
+                heads[f'band_{band}_filter_type'] = nn.Linear(hidden_dim, 5)  # 5 filter types
             
         elif self.effect_name == "reverb":
             # Reverb: Complete set of parameters for realistic reverb
@@ -132,6 +133,9 @@ class EffectDecoderBlock(nn.Module):
             elif "q" in param_name:
                 # Q factor: 0.1 to 10.0
                 return torch.sigmoid(raw_value) * 9.9 + 0.1
+            elif "filter_type" in param_name:
+                # Filter type: softmax over 5 types (bell, high_pass, low_pass, high_shelf, low_shelf)
+                return torch.softmax(raw_value, dim=-1)
                 
         elif self.effect_name == "reverb":
             if param_name == "room_size":
@@ -294,20 +298,71 @@ class ParallelPresetDecoder(nn.Module):
                 "Pitch": self._format_pitch_params_pedalboard(pitch_params)
             }
         
+        # ADDITION: Raw tensor concatenation for guide loss computation (맞춘 구조)
+        raw_tensors = []
+        
+        # EQ parameters (5 bands * 4 params = 20)
+        for band in range(1, 6):
+            raw_tensors.append(eq_params[f"band_{band}_freq"])
+            raw_tensors.append(eq_params[f"band_{band}_gain"])
+            raw_tensors.append(eq_params[f"band_{band}_q"])
+            # Convert filter type probabilities to single value (argmax)
+            filter_type_probs = eq_params[f"band_{band}_filter_type"]
+            filter_type_val = torch.argmax(filter_type_probs, dim=-1, keepdim=True).float()
+            raw_tensors.append(filter_type_val)
+        
+        # Reverb parameters (5개만 - guide preset과 일치)
+        raw_tensors.extend([
+            reverb_params["room_size"],
+            reverb_params["pre_delay"], 
+            reverb_params["diffusion"],
+            reverb_params["damping"],
+            reverb_params["wet_gain"]
+            # dry_gain 제외
+        ])
+        
+        # Distortion parameters (2개만 - guide preset과 일치)
+        raw_tensors.extend([
+            distortion_params["gain"],
+            distortion_params["bias"]  # bias를 color로 매핑
+            # tone, mix 제외
+        ])
+        
+        # Pitch parameters (1개만 - guide preset과 일치)
+        raw_tensors.extend([
+            pitch_params["pitch_shift"]  # pitch_shift를 scale로 매핑
+            # formant_shift, mix 제외
+        ])
+        
+        # Concatenate all raw tensors (총 28개: 20 + 5 + 2 + 1)
+        raw_params_tensor = torch.cat(raw_tensors, dim=-1)  # (batch_size, 28)
+        
+        # Add raw tensor to output
+        preset["_raw_params"] = raw_params_tensor
+        
         return preset
     
     def _format_eq_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format EQ parameters into differentiable format"""
         eq_params = {}
         
+        # Filter type mapping
+        filter_types = ["bell", "high_pass", "low_pass", "high_shelf", "low_shelf"]
+        
         # Extract parameters for each band
         for band in range(1, 6):  # 5 bands
             band_key = f"band_{band}"
+            
+            # Get filter type from softmax probabilities
+            filter_type_probs = params[f"band_{band}_filter_type"]
+            filter_type_idx = torch.argmax(filter_type_probs, dim=-1)
+            
             eq_params[band_key] = {
                 "center_freq": params[f"band_{band}_freq"],
                 "gain_db": params[f"band_{band}_gain"],
                 "q": params[f"band_{band}_q"],
-                "filter_type": "bell" if band in [2, 3, 4] else ("high_pass" if band == 1 else "low_pass")
+                "filter_type": filter_type_probs,  # Keep probabilities for differentiability
+                "filter_type_idx": filter_type_idx  # Index for actual filter selection
             }
         
         return eq_params
@@ -343,42 +398,46 @@ class ParallelPresetDecoder(nn.Module):
     # Backward compatibility: pedalboard format methods
     def _format_eq_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format EQ parameters into pedalboard format (backward compatibility)"""
-        return {
-            1: {
-                "frequency": params["band_1_freq"],
-                "Gain": params["band_1_gain"],
-                "Q": params["band_1_q"],
-                "Filter-type": "bell"
-            },
-            2: {
-                "frequency": params["band_2_freq"],
-                "Gain": params["band_2_gain"],
-                "Q": params["band_2_q"],
-                "Filter-type": "high-shelf"
+        filter_types = ["bell", "high_pass", "low_pass", "high_shelf", "low_shelf"]
+        
+        pedalboard_params = {}
+        for band in range(1, 6):  # All 5 bands
+            # Get filter type from softmax probabilities
+            filter_type_probs = params[f"band_{band}_filter_type"]
+            filter_type_idx = torch.argmax(filter_type_probs, dim=-1)
+            filter_type = filter_types[filter_type_idx.item()]
+            
+            pedalboard_params[band] = {
+                "frequency": params[f"band_{band}_freq"],
+                "Gain": params[f"band_{band}_gain"],
+                "Q": params[f"band_{band}_q"],
+                "Filter-type": filter_type
             }
-        }
+        
+        return pedalboard_params
     
     def _format_reverb_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format reverb parameters into pedalboard format (backward compatibility)"""
         return {
-            "Room Size": params["room_size"],
-            "Pre Delay": params["pre_delay"],
-            "Diffusion": params["diffusion"],
-            "Damping": params["damping"],
-            "Wet Gain": params["wet_gain"]
+            "room_size": params["room_size"],
+            "pre_delay": params["pre_delay"],
+            "diffusion": params["diffusion"],
+            "damping": params["damping"],
+            "wet_gain": params["wet_gain"]
+            # dry_gain 제외 - guide preset에 없음
         }
     
     def _format_distortion_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format distortion parameters into pedalboard format (backward compatibility)"""
         return {
-            "Gain": params["gain"],
-            "Color": params["color"]
+            "gain": params["gain"],
+            "color": params["bias"]  # Map bias to color for compatibility
         }
     
     def _format_pitch_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format pitch parameters into pedalboard format (backward compatibility)"""
         return {
-            "Scale": params["scale"]
+            "scale": params["pitch_shift"]  # Map pitch_shift to scale for compatibility
         }
 
 
