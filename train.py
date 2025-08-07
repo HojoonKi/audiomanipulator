@@ -68,95 +68,70 @@ class PresetDataset(Dataset):
         print(f"   - 오디오 길이: {audio_length}초")
         
     def _load_fine_presets(self, preset_path):
-        """Fine-tuned presets 파일 로드 (Python eval 방식)"""
+        """Fine-tuned presets 파일 로드 (Python module import 방식)"""
         presets = []
         try:
-            with open(preset_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
             print(f"📖 Fine preset 파일 읽기 시작: {preset_path}")
             
-            # Python dictionary 형태로 파싱 - 중괄호 블록 추출
-            blocks = []
-            i = 0
-            while i < len(content):
-                if content[i] == '{':
-                    # 시작점 찾음
-                    start = i
-                    brace_count = 1
-                    i += 1
-                    
-                    while i < len(content) and brace_count > 0:
-                        if content[i] == '{':
-                            brace_count += 1
-                        elif content[i] == '}':
-                            brace_count -= 1
-                        i += 1
-                    
-                    if brace_count == 0:
-                        block = content[start:i]
-                        # "prompt"가 포함된 블록만 선택
-                        if '"prompt"' in block or "'prompt'" in block:
-                            blocks.append(block)
-                else:
-                    i += 1
+            # Python 파일을 모듈로 동적 로드
+            import importlib.util
+            import sys
             
-            # 각 블록을 Python dictionary로 파싱
-            for i, block in enumerate(blocks):
-                try:
-                    # 주석 제거 함수 (문자열 내부는 제외)
-                    def remove_python_comments(text):
-                        lines = text.split('\n')
-                        cleaned_lines = []
-                        for line in lines:
-                            # # 이후 모든 내용 제거 (문자열 내부가 아닌 경우)
-                            in_string = False
-                            quote_char = None
-                            comment_pos = -1
-                            
-                            for j, char in enumerate(line):
-                                if char in ['"', "'"] and (j == 0 or line[j-1] != '\\'):
-                                    if not in_string:
-                                        in_string = True
-                                        quote_char = char
-                                    elif char == quote_char:
-                                        in_string = False
-                                        quote_char = None
-                                elif char == '#' and not in_string:
-                                    comment_pos = j
-                                    break
-                            
-                            if comment_pos >= 0:
-                                line = line[:comment_pos]
-                            
-                            line = line.rstrip()
-                            if line:
-                                cleaned_lines.append(line)
+            # 파일 경로에서 모듈 스펙 생성
+            spec = importlib.util.spec_from_file_location("fined_presets", preset_path)
+            if spec is None:
+                raise ImportError(f"Cannot create spec from file: {preset_path}")
+            
+            # 모듈 생성 및 로드
+            module = importlib.util.module_from_spec(spec)
+            
+            # sys.modules에 추가 (중복 로드 방지)
+            module_name = f"fined_presets_{id(module)}"
+            sys.modules[module_name] = module
+            
+            # 실행
+            spec.loader.exec_module(module)
+            
+            # fined_presets 리스트 가져오기
+            if hasattr(module, 'fined_presets'):
+                presets = module.fined_presets
+                print(f"🎯 성공적으로 로드된 preset 수: {len(presets)}")
+                
+                # 처음 몇 개 프리셋 검증
+                valid_presets = []
+                for i, preset in enumerate(presets):
+                    if isinstance(preset, dict):
+                        # 필수 키 검증
+                        if 'prompt' in preset:
+                            valid_presets.append(preset)
+                        else:
+                            if i < 3:  # 처음 3개만 경고
+                                print(f"⚠️  Preset {i+1}: 'prompt' key missing")
+                    else:
+                        if i < 3:  # 처음 3개만 경고
+                            print(f"⚠️  Preset {i+1}: Not a dictionary, type: {type(preset)}")
+                
+                presets = valid_presets
+                print(f"✅ 검증된 preset 수: {len(presets)}")
+                
+                # 샘플 프리셋 정보 출력
+                if presets:
+                    sample_preset = presets[0]
+                    print(f"📋 샘플 프리셋 구조:")
+                    print(f"   - prompt: {sample_preset.get('prompt', 'N/A')[:50]}...")
+                    print(f"   - keys: {list(sample_preset.keys())}")
+                    if 'Reverb' in sample_preset:
+                        reverb_keys = list(sample_preset['Reverb'].keys()) if sample_preset['Reverb'] else []
+                        print(f"   - Reverb keys: {reverb_keys}")
                         
-                        return '\n'.join(cleaned_lines)
-                    
-                    # 주석 제거
-                    cleaned_block = remove_python_comments(block)
-                    
-                    # Python의 eval로 dictionary 파싱 (안전하게)
-                    preset = eval(cleaned_block)
-                    
-                    if isinstance(preset, dict) and 'prompt' in preset:
-                        presets.append(preset)
-                    
-                except Exception as e:
-                    if i < 5:  # 처음 5개 실패만 출력
-                        print(f"❌ Failed parsing preset {i+1}: {str(e)[:100]}")
-                        print(f"   Block preview: {block[:200]}...")
-                    continue
-                    
+            else:
+                print(f"❌ 'fined_presets' variable not found in {preset_path}")
+                
         except Exception as e:
             print(f"❌ Failed loading fine presets: {e}")
             import traceback
             traceback.print_exc()
             
-        print(f"🎯 성공적으로 로드된 preset 수: {len(presets)}")
-        
         return presets
     
     def _extract_keywords_from_description(self, description):
@@ -570,8 +545,8 @@ class TrainingManager:
         train_descriptions = descriptions[:split_idx]
         val_descriptions = descriptions[split_idx:]
         
-        # Fine preset 경로
-        fine_preset_path = os.path.join(self.args.data_path, 'descriptions', 'fined_presets.txt')
+        # Fine preset 경로 - 새로운 Python 파일 사용
+        fine_preset_path = os.path.join(self.args.data_path, 'descriptions', 'fined_presets_filtered.py')
         
         # Custom collate function for handling guide_presets
         def custom_collate_fn(batch):

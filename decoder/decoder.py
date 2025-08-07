@@ -58,24 +58,33 @@ class EffectDecoderBlock(nn.Module):
         heads = nn.ModuleDict()
         
         if self.effect_name == "equalizer":
-            # EQ: Use differentiable-compatible parameter names
-            heads['center_freq'] = nn.Linear(hidden_dim, 1)    # Frequency -> center_freq
-            heads['gain_db'] = nn.Linear(hidden_dim, 1)        # Gain -> gain_db
-            heads['q'] = nn.Linear(hidden_dim, 1)              # Q factor
+            # EQ: 5 bands with frequency, gain, Q for each band
+            for band in range(1, 6):  # 5 bands: band_1 to band_5
+                heads[f'band_{band}_freq'] = nn.Linear(hidden_dim, 1)
+                heads[f'band_{band}_gain'] = nn.Linear(hidden_dim, 1)
+                heads[f'band_{band}_q'] = nn.Linear(hidden_dim, 1)
             
         elif self.effect_name == "reverb":
-            # Reverb: Use differentiable-compatible parameter names  
-            heads['wet_gain'] = nn.Linear(hidden_dim, 1)       # Wet gain for reverb
-            heads['dry_gain'] = nn.Linear(hidden_dim, 1)       # Dry gain for reverb
+            # Reverb: Complete set of parameters for realistic reverb
+            heads['room_size'] = nn.Linear(hidden_dim, 1)      # Room size (0-1)
+            heads['pre_delay'] = nn.Linear(hidden_dim, 1)      # Pre-delay in ms
+            heads['diffusion'] = nn.Linear(hidden_dim, 1)      # Diffusion (0-1)
+            heads['damping'] = nn.Linear(hidden_dim, 1)        # High-freq damping (0-1)
+            heads['wet_gain'] = nn.Linear(hidden_dim, 1)       # Wet signal level
+            heads['dry_gain'] = nn.Linear(hidden_dim, 1)       # Dry signal level
             
         elif self.effect_name == "distortion":
-            # Distortion: Use differentiable-compatible parameter names
-            heads['gain'] = nn.Linear(hidden_dim, 1)           # Gain (already compatible)
-            heads['bias'] = nn.Linear(hidden_dim, 1)           # Bias for differentiable distortion
+            # Distortion: Complete set for realistic distortion
+            heads['gain'] = nn.Linear(hidden_dim, 1)           # Drive/gain
+            heads['bias'] = nn.Linear(hidden_dim, 1)           # DC bias
+            heads['tone'] = nn.Linear(hidden_dim, 1)           # Tone control
+            heads['mix'] = nn.Linear(hidden_dim, 1)            # Wet/dry mix
             
         elif self.effect_name == "pitch":
-            # Pitch shift: Use differentiable-compatible parameter names
-            heads['pitch_shift'] = nn.Linear(hidden_dim, 1)    # Scale -> pitch_shift
+            # Pitch shift: Complete set for pitch shifting
+            heads['pitch_shift'] = nn.Linear(hidden_dim, 1)    # Pitch ratio
+            heads['formant_shift'] = nn.Linear(hidden_dim, 1)  # Formant correction
+            heads['mix'] = nn.Linear(hidden_dim, 1)            # Wet/dry mix
             
         else:
             # Generic parameters
@@ -114,36 +123,57 @@ class EffectDecoderBlock(nn.Module):
         """Apply realistic constraints to parameters"""
         
         if self.effect_name == "equalizer":
-            if param_name == "center_freq":
-                # Frequency: 20Hz - 20kHz  
+            if "freq" in param_name:
+                # Frequency: 20Hz - 20kHz, distributed logarithmically
                 return torch.sigmoid(raw_value) * 19980 + 20
-            elif param_name == "gain_db":
+            elif "gain" in param_name:
                 # Gain: -20dB to +20dB
                 return torch.tanh(raw_value) * 20
-            elif param_name == "q":
+            elif "q" in param_name:
                 # Q factor: 0.1 to 10.0
                 return torch.sigmoid(raw_value) * 9.9 + 0.1
                 
         elif self.effect_name == "reverb":
-            if param_name == "wet_gain":
-                # Wet gain: 0 to 1
+            if param_name == "room_size":
+                # Room size: 0 to 1
                 return torch.sigmoid(raw_value)
-            elif param_name == "dry_gain":
-                # Dry gain: 0 to 1  
+            elif param_name == "pre_delay":
+                # Pre-delay: 0 to 100ms
+                return torch.sigmoid(raw_value) * 100
+            elif param_name == "diffusion":
+                # Diffusion: 0 to 1
+                return torch.sigmoid(raw_value)
+            elif param_name == "damping":
+                # Damping: 0 to 1
+                return torch.sigmoid(raw_value)
+            elif param_name in ["wet_gain", "dry_gain"]:
+                # Gain levels: 0 to 1
                 return torch.sigmoid(raw_value)
                 
         elif self.effect_name == "distortion":
             if param_name == "gain":
-                # Distortion gain: 1 to 10 (linear scale)
-                return torch.sigmoid(raw_value) * 9 + 1
+                # Distortion gain: 1 to 20 (higher range for more distortion)
+                return torch.sigmoid(raw_value) * 19 + 1
             elif param_name == "bias":
                 # Bias: -1 to 1
                 return torch.tanh(raw_value)
+            elif param_name == "tone":
+                # Tone: 0 to 1 (0=dark, 1=bright)
+                return torch.sigmoid(raw_value)
+            elif param_name == "mix":
+                # Mix: 0 to 1 (0=dry, 1=wet)
+                return torch.sigmoid(raw_value)
                 
         elif self.effect_name == "pitch":
             if param_name == "pitch_shift":
                 # Pitch shift: 0.5 to 2.0 (pitch ratio)
                 return torch.sigmoid(raw_value) * 1.5 + 0.5
+            elif param_name == "formant_shift":
+                # Formant shift: 0.8 to 1.2
+                return torch.sigmoid(raw_value) * 0.4 + 0.8
+            elif param_name == "mix":
+                # Mix: 0 to 1
+                return torch.sigmoid(raw_value)
         
         # Default: sigmoid activation
         return torch.sigmoid(raw_value)
@@ -268,16 +298,27 @@ class ParallelPresetDecoder(nn.Module):
     
     def _format_eq_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format EQ parameters into differentiable format"""
-        return {
-            "center_freq": params["center_freq"],
-            "gain_db": params["gain_db"],
-            "q": params["q"],
-            "filter_type": "bell"  # Default filter type
-        }
+        eq_params = {}
+        
+        # Extract parameters for each band
+        for band in range(1, 6):  # 5 bands
+            band_key = f"band_{band}"
+            eq_params[band_key] = {
+                "center_freq": params[f"band_{band}_freq"],
+                "gain_db": params[f"band_{band}_gain"],
+                "q": params[f"band_{band}_q"],
+                "filter_type": "bell" if band in [2, 3, 4] else ("high_pass" if band == 1 else "low_pass")
+            }
+        
+        return eq_params
     
     def _format_reverb_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format reverb parameters into differentiable format"""
         return {
+            "room_size": params["room_size"],
+            "pre_delay": params["pre_delay"],
+            "diffusion": params["diffusion"],
+            "damping": params["damping"],
             "wet_gain": params["wet_gain"],
             "dry_gain": params["dry_gain"]
         }
@@ -286,13 +327,17 @@ class ParallelPresetDecoder(nn.Module):
         """Format distortion parameters into differentiable format"""
         return {
             "gain": params["gain"],
-            "bias": params["bias"]
+            "bias": params["bias"],
+            "tone": params["tone"],
+            "mix": params["mix"]
         }
     
     def _format_pitch_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format pitch parameters into differentiable format"""
         return {
-            "pitch_shift": params["pitch_shift"]
+            "pitch_shift": params["pitch_shift"],
+            "formant_shift": params["formant_shift"],
+            "mix": params["mix"]
         }
     
     # Backward compatibility: pedalboard format methods
