@@ -64,55 +64,108 @@ class PretrainDataset(Dataset):
             return []
     
     def _is_valid_preset(self, preset):
-        """Preset 유효성 검증"""
+        """Preset 유효성 검증 - fined_presets_filtered.py 구조에 맞춤"""
         if not preset or not isinstance(preset, dict):
             return False
         
-        # 필수 키들이 있는지 확인
-        required_sections = ['eq', 'reverb', 'distortion', 'pitch']
-        for section in required_sections:
-            if section not in preset:
+        try:
+            # 필수 키들이 있는지 확인 (실제 파일 구조에 맞춤)
+            required_sections = ['Equalizer', 'Reverb', 'Distortion', 'Pitch']
+            for section in required_sections:
+                if section not in preset:
+                    print(f"❌ 필수 섹션 누락: {section}")
+                    return False
+            
+            # Equalizer 섹션 검증 (리스트 형태)
+            eq_section = preset['Equalizer']
+            if not isinstance(eq_section, list):
+                print(f"❌ Equalizer가 리스트가 아님: {type(eq_section)}")
+                return False
+            if len(eq_section) != 5:
+                print(f"❌ Equalizer 밴드 수가 5개가 아님: {len(eq_section)}개")
                 return False
             
-            section_data = preset[section]
-            if not isinstance(section_data, dict):
-                return False
-        
-        # EQ 섹션 상세 검증
-        eq_section = preset['eq']
-        expected_eq_keys = ['band_1', 'band_2', 'band_3', 'band_4', 'band_5']
-        for band in expected_eq_keys:
-            if band not in eq_section:
-                return False
-            band_data = eq_section[band]
-            if not isinstance(band_data, dict):
-                return False
-            # EQ 밴드 필수 파라미터 체크
-            band_required = ['center_freq', 'gain_db', 'q', 'filter_type']
-            for param in band_required:
-                if param not in band_data:
+            for i, band in enumerate(eq_section):
+                if not isinstance(band, dict):
+                    print(f"❌ EQ 밴드 {i}가 dict가 아님: {type(band)}")
                     return False
-        
-        # Reverb 섹션 검증
-        reverb_section = preset['reverb']
-        reverb_required = ['room_size', 'pre_delay', 'diffusion', 'damping', 'wet_gain']
-        for param in reverb_required:
-            if param not in reverb_section:
+                # EQ 밴드 필수 파라미터 체크
+                band_required = ['frequency', 'gain', 'q', 'filter_type']
+                for param in band_required:
+                    if param not in band:
+                        print(f"❌ EQ 밴드 {i}에서 '{param}' 파라미터 누락")
+                        print(f"   밴드 내용: {band}")
+                        return False
+                
+                # filter_type 값 검증 (5개 타입 지원)
+                filter_type = band['filter_type']
+                valid_filter_types = ['low-shelf', 'bell', 'high-shelf', 'highpass', 'lowpass']
+                
+                # 추가 호환성을 위한 자동 변환 매핑 (필요시)
+                filter_type_conversion = {
+                    'notch': 'bell',           # notch -> bell로 변환
+                    'high-pass': 'highpass',   # high-pass -> highpass로 변환  
+                    'low-pass': 'lowpass',     # low-pass -> lowpass로 변환
+                    'low_shelf': 'low-shelf',  # low_shelf -> low-shelf로 변환
+                    'high_shelf': 'high-shelf', # high_shelf -> high-shelf로 변환
+                    'bandpass': 'bell',        # bandpass -> bell로 변환
+                    'peaking': 'bell',         # peaking -> bell로 변환
+                }
+                
+                if filter_type not in valid_filter_types:
+                    if filter_type in filter_type_conversion:
+                        # 자동 변환
+                        new_filter_type = filter_type_conversion[filter_type]
+                        band['filter_type'] = new_filter_type  # 실제로 변환
+                        if i == 0:  # 첫 번째 밴드에서만 로깅 (스팸 방지)
+                            print(f"🔄 EQ filter_type 자동 변환: '{filter_type}' → '{new_filter_type}'")
+                    else:
+                        print(f"❌ EQ 밴드 {i}의 filter_type이 유효하지 않음: '{filter_type}'")
+                        print(f"   허용값: {valid_filter_types}")
+                        print(f"   자동 변환 가능: {list(filter_type_conversion.keys())}")
+                        return False
+            
+            # Reverb 섹션 검증
+            reverb_section = preset['Reverb']
+            if not isinstance(reverb_section, dict):
+                print(f"❌ Reverb가 dict가 아님: {type(reverb_section)}")
                 return False
-        
-        # Distortion 섹션 검증
-        dist_section = preset['distortion']
-        dist_required = ['gain', 'color']
-        for param in dist_required:
-            if param not in dist_section:
+            reverb_required = ['room_size', 'pre_delay', 'diffusion', 'damping', 'wet_gain']
+            for param in reverb_required:
+                if param not in reverb_section:
+                    print(f"❌ Reverb에서 '{param}' 파라미터 누락")
+                    print(f"   Reverb 내용: {reverb_section}")
+                    return False
+            
+            # Distortion 섹션 검증
+            distortion_section = preset['Distortion']
+            if not isinstance(distortion_section, dict):
+                print(f"❌ Distortion이 dict가 아님: {type(distortion_section)}")
                 return False
-        
-        # Pitch 섹션 검증
-        pitch_section = preset['pitch']
-        if 'scale' not in pitch_section:
+            distortion_required = ['gain', 'color']
+            for param in distortion_required:
+                if param not in distortion_section:
+                    print(f"❌ Distortion에서 '{param}' 파라미터 누락")
+                    print(f"   Distortion 내용: {distortion_section}")
+                    return False
+            
+            # Pitch 섹션 검증
+            pitch_section = preset['Pitch']
+            if not isinstance(pitch_section, dict):
+                print(f"❌ Pitch가 dict가 아님: {type(pitch_section)}")
+                return False
+            if 'scale' not in pitch_section:
+                print(f"❌ Pitch에서 'scale' 파라미터 누락")
+                print(f"   Pitch 내용: {pitch_section}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ 검증 중 예외 발생: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-        
-        return True
     
     def _load_audio(self, audio_path):
         """오디오 파일 로드"""

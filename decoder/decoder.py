@@ -63,7 +63,7 @@ class EffectDecoderBlock(nn.Module):
                 heads[f'band_{band}_freq'] = nn.Linear(hidden_dim, 1)
                 heads[f'band_{band}_gain'] = nn.Linear(hidden_dim, 1)
                 heads[f'band_{band}_q'] = nn.Linear(hidden_dim, 1)
-                heads[f'band_{band}_filter_type'] = nn.Linear(hidden_dim, 3)  # 3 filter types: low-shelf, bell, high-shelf
+                heads[f'band_{band}_filter_type'] = nn.Linear(hidden_dim, 5)  # 5 filter types: low-shelf, bell, high-shelf, highpass, lowpass
             
         elif self.effect_name == "reverb":
             # Reverb: Complete set of parameters for realistic reverb
@@ -395,13 +395,17 @@ class ParallelPresetDecoder(nn.Module):
     # Backward compatibility: pedalboard format methods
     def _format_eq_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format EQ parameters into pedalboard format (backward compatibility)"""
-        filter_types = ["low-shelf", "bell", "high-shelf"]  # Guide preset과 일치하는 3개 타입
+        filter_types = ["low-shelf", "bell", "high-shelf", "highpass", "lowpass"]  # 5개 타입 지원
         
         pedalboard_params = {}
         for band in range(1, 6):  # All 5 bands
             # Get filter type from softmax probabilities
             filter_type_probs = params[f"band_{band}_filter_type"]
             filter_type_idx = torch.argmax(filter_type_probs, dim=-1)
+            
+            # Index 범위 체크 (안전성)
+            if filter_type_idx.item() >= len(filter_types):
+                filter_type_idx = torch.tensor(1)  # Default to 'bell'
             filter_type = filter_types[filter_type_idx.item()]
             
             pedalboard_params[band] = {

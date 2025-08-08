@@ -1,5 +1,5 @@
 # Use CUDA 12.1 for RTX 3090/4090 compatibility
-FROM nvidia/cuda:12.1-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -30,10 +30,10 @@ ENV PATH="/home/audiomanipulator/app/venv/bin:$PATH"
 
 # Install Python packages
 COPY --chown=audiomanipulator:audiomanipulator requirements.txt .
-RUN pip install --upgrade pip
-# Install PyTorch with CUDA 12.1 support for RTX 3090/4090
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-RUN pip install -r requirements.txt
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip cache purge
 
 # Copy application
 COPY --chown=audiomanipulator:audiomanipulator . .

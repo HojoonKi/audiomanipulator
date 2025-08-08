@@ -453,11 +453,11 @@ class TrainingManager:
                         # 배치별 로깅은 글로벌 step으로 계산
                         global_step = epoch * len(train_loader) + batch_idx
                         wandb.log({
-                            'batch_loss': batch_loss.item(),
-                            'batch_idx': batch_idx,
-                            'epoch': epoch + 1,
-                            'training_mode': training_mode,
-                            'learning_rate': self.scheduler.get_last_lr()[0] if hasattr(self.scheduler, 'get_last_lr') else self.args.learning_rate
+                            'train/batch_loss': batch_loss.item(),
+                            'train/batch_idx': batch_idx,
+                            'train/epoch': epoch + 1,
+                            'train/training_mode': training_mode,
+                            'train/learning_rate': self.scheduler.get_last_lr()[0] if hasattr(self.scheduler, 'get_last_lr') else self.args.learning_rate
                         }, step=global_step)
                     
             except Exception as e:
@@ -479,10 +479,13 @@ class TrainingManager:
         
         # wandb logging (에포크별)
         if self.rank == 0 and self.args.use_wandb:
+            # 에포크별 로깅도 글로벌 step 사용 (에포크 끝의 step)
+            epoch_step = (epoch + 1) * len(train_loader)
             wandb.log({
-                'train_loss_epoch': final_loss,
-                'training_mode': training_mode
-            }, step=epoch)
+                'epoch/train_loss': final_loss,
+                'epoch/training_mode': training_mode,
+                'epoch/epoch_num': epoch + 1
+            }, step=epoch_step)
         
         return final_loss
     
@@ -615,7 +618,15 @@ class TrainingManager:
         filter_type_mapping = {
             "low-shelf": 0,
             "bell": 1, 
-            "high-shelf": 2
+            "high-shelf": 2,
+            "highpass": 3,
+            "lowpass": 4,
+            # 추가 호환성
+            "notch": 1,  # notch는 bell과 유사
+            "low_shelf": 0,  # 언더스코어 버전
+            "high_shelf": 2,
+            "low_pass": 4,
+            "high_pass": 3
         }
         
         # EQ (20개): frequency, gain, q, filter_type × 5
@@ -758,8 +769,9 @@ class TrainingManager:
         # Fine preset 경로
         fine_preset_path = os.path.join(self.args.data_path, 'descriptions', 'fined_presets_filtered.py')
         
-        # 기존 옵티마이저 백업  
+        # 기존 옵티마이저와 스케줄러 백업  
         original_optimizer = self.optimizer
+        original_scheduler = self.scheduler
         original_lr = self.args.learning_rate
         
         # 사전 훈련용 옵티마이저 생성
@@ -768,7 +780,15 @@ class TrainingManager:
             lr=self.args.pretrain_lr,
             weight_decay=self.args.weight_decay
         )
+        
+        # 사전 훈련용 스케줄러 생성
+        pretrain_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            pretrain_optimizer, T_max=self.args.pretrain_epochs
+        )
+        
+        # 사전 훈련용 설정으로 교체
         self.optimizer = pretrain_optimizer
+        self.scheduler = pretrain_scheduler
         self.args.learning_rate = self.args.pretrain_lr
         
         try:
@@ -853,19 +873,25 @@ class TrainingManager:
                 # 간단한 검증
                 val_loss = self.pretrain_validate(val_loader)
                 
+                # 스케줄러 업데이트
+                self.scheduler.step()
+                
                 if self.rank == 0:
+                    current_lr = self.scheduler.get_last_lr()[0] if hasattr(self.scheduler, 'get_last_lr') else self.args.pretrain_lr
                     print(f"Pretrain {epoch+1}/{self.args.pretrain_epochs}: "
-                          f"Loss={train_loss:.6f}, Val={val_loss:.6f} (Guide Preset Only)")
+                          f"Loss={train_loss:.6f}, Val={val_loss:.6f}, LR={current_lr:.1e} (Guide Preset Only)")
                     
                     # Wandb 사전 훈련 로깅
                     if self.args.use_wandb:
+                        # 사전 훈련은 별도 네임스페이스와 step으로 로깅
+                        pretrain_step = epoch + 1  # 사전 훈련은 간단히 에포크 번호 사용
                         wandb.log({
-                            'pretrain_epoch': epoch + 1,
-                            'pretrain_train_loss': train_loss,
-                            'pretrain_val_loss': val_loss,
-                            'pretrain_lr': self.args.pretrain_lr,
-                            'phase': 'pretrain_guide_only'
-                        }, step=epoch)
+                            'pretrain/epoch': epoch + 1,
+                            'pretrain/train_loss': train_loss,
+                            'pretrain/val_loss': val_loss,
+                            'pretrain/learning_rate': current_lr,
+                            'pretrain/phase': 'guide_preset_only'
+                        }, step=pretrain_step)
                 
                 # 최고 성능 추적
                 if val_loss < best_pretrain_loss:
@@ -887,9 +913,9 @@ class TrainingManager:
                         # Wandb에 최고 성능 기록
                         if self.args.use_wandb:
                             wandb.log({
-                                'pretrain_best_loss': best_pretrain_loss,
-                                'pretrain_best_epoch': epoch + 1
-                            }, step=epoch)
+                                'pretrain/best_loss': best_pretrain_loss,
+                                'pretrain/best_epoch': epoch + 1
+                            }, step=pretrain_step)
             
             if self.rank == 0:
                 print(f"✅ 사전 훈련 완료! 최고 성능: {best_pretrain_loss:.6f}")
@@ -906,6 +932,7 @@ class TrainingManager:
             # 원래 설정 복원
             self.args.learning_rate = original_lr
             self.optimizer = original_optimizer
+            self.scheduler = original_scheduler
 
     def pretrain_epoch(self, train_loader, epoch):
         """사전 훈련 전용 에포크 - Guide Preset 파라미터 매칭만 (배치 최적화)"""
@@ -987,11 +1014,12 @@ class TrainingManager:
                     
                     # Progress bar 업데이트
                     if self.rank == 0 and hasattr(pbar, 'set_postfix'):
+                        current_lr = self.scheduler.get_last_lr()[0] if hasattr(self.scheduler, 'get_last_lr') else self.args.pretrain_lr
                         pbar.set_postfix({
                             'GuideLoss': f'{batch_loss.item():.4f}',
                             'AvgLoss': f'{total_loss/(batch_idx+1):.4f}',
                             'ValidItems': f'{len(valid_indices)}/{len(descriptions)}',
-                            'BatchEff': f'{len(valid_indices)}/{len(descriptions)*100:.0f}%',
+                            'LR': f'{current_lr:.1e}',
                             'Mode': 'Guide'
                         })
                 
@@ -1222,19 +1250,19 @@ class TrainingManager:
                         print("⚠️  학습이 정체된 것 같습니다. Learning rate 조정을 고려해보세요.")
                 
                 if self.args.use_wandb:
-                    # wandb logging - 글로벌 step 사용 (배치 단위)
-                    global_step = epoch * len(train_loader) + len(train_loader)  # 에포크 끝의 step
+                    # wandb logging - 글로벌 step 사용 (에포크 끝의 step)
+                    main_global_step = (epoch + 1) * len(train_loader)
                     wandb.log({
-                        'epoch': epoch + 1,
-                        'train_loss_epoch': train_loss,
-                        'val_loss_epoch': val_loss,
-                        'learning_rate_epoch': self.scheduler.get_last_lr()[0],
-                        'training_mode_epoch': training_mode,
-                        'is_guide_epoch': self.args.use_guide_presets and epoch < self.args.guide_epochs,
-                        'use_guide_presets': self.args.use_guide_presets,
-                        'guide_epochs': self.args.guide_epochs if self.args.use_guide_presets else 0,
-                        'pretrain_enabled': self.args.enable_pretrain
-                    }, step=global_step)
+                        'main/epoch': epoch + 1,
+                        'main/train_loss': train_loss,
+                        'main/val_loss': val_loss,
+                        'main/learning_rate': self.scheduler.get_last_lr()[0],
+                        'main/training_mode': training_mode,
+                        'main/is_guide_epoch': self.args.use_guide_presets and epoch < self.args.guide_epochs,
+                        'main/use_guide_presets': self.args.use_guide_presets,
+                        'main/guide_epochs': self.args.guide_epochs if self.args.use_guide_presets else 0,
+                        'main/pretrain_enabled': self.args.enable_pretrain
+                    }, step=main_global_step)
             
             # 체크포인트 저장
             is_best = val_loss < best_val_loss
@@ -1319,7 +1347,7 @@ def main():
                        help='Guide preset으로 사전 훈련 활성화 (일반 훈련은 Pure Description)')
     parser.add_argument('--pretrain_epochs', type=int, default=100,
                        help='사전 훈련 에포크 수')
-    parser.add_argument('--pretrain_batch_size', type=int, default=16,
+    parser.add_argument('--pretrain_batch_size', type=int, default=8,
                        help='사전 훈련 배치 크기 (기본값: 일반 훈련과 동일)')
     parser.add_argument('--pretrain_lr', type=float, default=3e-4,
                        help='사전 훈련 학습률')
