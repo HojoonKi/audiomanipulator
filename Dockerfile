@@ -44,10 +44,6 @@ COPY . .
 RUN mkdir -p checkpoints output audio_dataset \
     && chmod 777 checkpoints output audio_dataset
 
-# Switch back to audiomanipulator user
-USER audiomanipulator
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-
 CMD ["bash"]
 EXPOSE 8080
 
