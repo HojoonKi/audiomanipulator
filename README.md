@@ -160,31 +160,15 @@ pip install -r requirements.txt
 
 </details>
 
-## ⚡ Quick Reference
-
-### Docker Commands Cheat Sheet
-
-```bash
-# 🚀 Essential Commands
-docker-compose up -d --build           # Build and start container in background
-docker-compose exec audiomanipulator bash  # Enter container
-docker-compose ps                      # Check running status
-docker-compose logs -f                 # View logs
-docker-compose down                    # Stop and remove container
-
-# 🔍 Debug & Monitoring Commands
-docker-compose restart                 # Restart container
-docker system prune -f                # Clean up (careful!)
-```
 
 ### Model Parameters & Effects
 
 | Effect Type | Parameters | Description |
 |-------------|------------|-------------|
-| **Equalizer** | filter_type (3 types)<br/>freq (20-20kHz)<br/>gain (-20 to +20 dB)<br/>Q factor (0.1-10) | 3-band EQ: low-shelf, bell, high-shelf |
+| **Equalizer** | filter_type (5 types)<br/>freq (20-20kHz)<br/>gain (-20 to +20 dB)<br/>Q factor (0.1-10) | 3-band EQ: low-shelf, bell, high-shelf, low-pass, high-pass |
 | **Reverb** | room_size (0-1)<br/>damping (0-1)<br/>wet_level (0-1)<br/>dry_level (0-1) | Environmental reverb simulation |
 | **Distortion** | drive (0-1)<br/>gain (0-1) | Analog-style saturation |
-| **Pitch** | pitch_shift (-12 to +12 semitones) | Pitch shifting without tempo change |
+| **Pitch** | pitch (-12 to +12 semitones) | Pitch shifting without tempo change |
 
 ### Environment Variables
 
@@ -211,7 +195,7 @@ export WANDB_CACHE_DIR=/app/cache/wandb # Weights & Biases cache
 3. **Parallel Decoder**:
    - Separate heads for each effect type
    - Constraint-aware parameter generation
-   - 3-class filter type classification for EQ
+   - 5-class filter type classification for EQ
 
 ### Training Process
 
@@ -229,242 +213,18 @@ python train.py \
     --description_path /app/custom_descriptions.txt
 ```
 
-## 📁 Project Structure
-
-```
-AudioManipulator/
-├── 🐳 Docker Configuration
-│   ├── Dockerfile                 # Main container definition
-│   ├── docker-compose.yml         # Multi-service orchestration
-│   └── .dockerignore              # Build context exclusions
-├── 🎵 Audio Processing
-│   ├── audio_tools/               # Audio I/O and preprocessing
-│   ├── audio_dataset/             # Training data (instrumentals/speech)
-│   └── output/                    # Generated audio outputs
-├── 🧠 Model Components
-│   ├── model/                     # Neural network architectures
-│   ├── encoder/                   # Text encoding modules
-│   ├── decoder/                   # Parameter generation
-│   └── utils/                     # Parameter mapping utilities
-├── 📊 Training & Evaluation
-│   ├── train.py                   # Main training script
-│   ├── test.py                    # Inference and testing
-│   ├── pipeline.py               # Complete processing pipeline
-│   └── checkpoints/              # Saved model weights
-├── 📝 Data & Descriptions
-│   ├── descriptions/              # Text-effect pair datasets
-│   └── prompt/                    # Template prompts
-└── 📚 Documentation
-    ├── README.md                  # This file
-    └── requirements.txt           # Python dependencies
-```
-
-## 🚀 Advanced Usage
-
-### Custom Dataset Training
-
-1. **Prepare Your Data**:
-   ```bash
-   # In Docker container
-   mkdir -p /app/custom_dataset/audio
-   mkdir -p /app/custom_dataset/descriptions
-   
-   # Copy your audio files
-   cp /host/my_audio/* /app/custom_dataset/audio/
-   
-   # Create description file
-   echo "warm vintage sound with analog saturation" > /app/custom_dataset/descriptions/custom.txt
-   ```
-
-2. **Train with Custom Data**:
-   ```bash
-   python train.py \
-       --dataset_path /app/custom_dataset \
-       --description_path /app/custom_dataset/descriptions/custom.txt \
-       --epochs 50
-   ```
-
-### API Integration
-
-```python
-# Example Python integration (in container)
-from pipeline import AudioManipulatorPipeline
-
-# Initialize pipeline
-pipeline = AudioManipulatorPipeline(device="cuda")
-
-# Process audio
-result = pipeline.process(
-    audio_path="/app/input.wav",
-    text_prompt="bright and crisp studio sound",
-    output_path="/app/output.wav"
-)
-
-print(f"Generated parameters: {result['parameters']}")
-```
-
-### Batch Processing
-
-```bash
-# Process multiple files with Docker
-cat audio_list.txt | while read audio_file description; do
-    docker-compose exec audiomanipulator python test.py \
-        --input_audio "$audio_file" \
-        --text_prompt "$description" \
-        --output_audio "output_$(basename $audio_file)"
-done
-```
-
-## 🎮 Interactive Development
-
-### Jupyter Notebook Environment
-
-```bash
-# Start Jupyter service
-docker-compose --profile notebook up -d audiomanipulator-notebook
-
-# Access at http://localhost:8888
-# Default password: audiomanipulator
-```
-
-The notebook environment includes:
-- Pre-configured audio processing tools
-- Model experimentation notebooks
-- Real-time parameter visualization
-- Interactive effect demonstration
-
-### Development Workflow
-
-```bash
-# 1. Code with live reload
-docker-compose exec audiomanipulator bash
-cd /app && python -m pytest tests/  # Run tests
-
-# 2. Train with monitoring
-docker-compose --profile training up audiomanipulator-train
-
-# 3. Experiment in Jupyter
-# Visit http://localhost:8888 and open groundit_demo.ipynb
-```
-
-## 🤝 Contributing
-
-### Development Setup
-
-```bash
-# Clone and setup development environment
-git clone https://github.com/HojoonKi/audiomanipulator.git
-cd audiomanipulator
-
-# Start development container
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-# Install pre-commit hooks (optional)
-docker-compose exec audiomanipulator pre-commit install
-```
-
-### Code Style
-
-```bash
-# Format code (in container)
-black .
-isort .
-flake8 .
-```
-
-## 📋 Troubleshooting
-
-### Common Docker Issues
-
-**Container won't start**:
-```bash
-# Check logs
-docker-compose logs audiomanipulator
-
-# Rebuild if needed
-docker-compose build --no-cache audiomanipulator
-```
-
-**GPU not detected (RTX 3090/4090)**:
-```bash
-# Verify NVIDIA Container Toolkit installation
-docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
-
-# Check if NVIDIA Container Toolkit is properly configured
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-
-# For older GPUs, try CUDA 11.8 instead
-# Modify Dockerfile: FROM nvidia/cuda:11.8-devel-ubuntu22.04
-```
-
-**Permission issues**:
-```bash
-# Fix volume permissions
-sudo chown -R $USER:$USER output/
-sudo chown -R $USER:$USER checkpoints/
-```
-
-**Out of memory**:
-```bash
-# Reduce batch size in training
-python train.py --batch_size 16  # Instead of 32
-
-# Or use CPU mode
-python train.py --device cpu
-```
-
-### Native Installation Issues
-
-<details>
-<summary>Click to expand native installation troubleshooting</summary>
-
-**ImportError: No module named 'torch'**:
-```bash
-# Verify environment activation
-conda activate audio_tools  # or source audio_env/bin/activate
-pip list | grep torch
-```
-
-**CUDA not available**:
-```bash
-# Check CUDA installation
-nvidia-smi
-python -c "import torch; print(torch.cuda.is_available())"
-
-# Reinstall PyTorch with CUDA
-pip uninstall torch torchvision torchaudio
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
-
-**Audio processing errors**:
-```bash
-# Install system audio libraries (Ubuntu/Debian)
-sudo apt-get update
-sudo apt-get install libsndfile1 ffmpeg
-
-# macOS
-brew install libsndfile ffmpeg
-```
-
-</details>
-
 ## 📜 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
-- **AudioLDM2**: Advanced audio generation model integration
-- **GrounDiT**: Grounding and text-to-audio synthesis
 - **Pedalboard**: Real-time audio effects processing
+- **Text2FX**: Former research on text to preset parameters
 - **HuggingFace Transformers**: Text encoding and model hosting
 
 ---
 
-**📞 Support**: For issues or questions, please create a GitHub issue or contact the development team.
-
-**🔄 Updates**: This project is actively maintained. Check for updates regularly.
 
 ## 🚀 Model Testing Usage
 
@@ -631,7 +391,7 @@ output/
 ## 📊 Model Architecture
 
 1. **Text Encoder**: SentenceTransformer-large (768D) + CLAP (512D)
-2. **Enhanced Backbone**: Cross-Attention Fusion + Processing Network
+2. **Backbone**: Cross-Attention Fusion + Processing Network
    - **Cross-Modal Fusion Block**: Sophisticated bidirectional attention between text and CLAP embeddings
    - **CLAP-to-Text Attention**: CLAP embeddings attend to rich textual context for nuanced understanding
    - **Text-to-CLAP Attention**: Text embeddings become audio-aware through CLAP context
@@ -639,9 +399,9 @@ output/
    - **Learned Fusion**: Context-dependent combination (not fixed like concatenation)
 3. **Parallel Effect Decoders**: 
    - EQ Decoder: 5 bands × 4 parameters = 20 outputs
-   - Reverb Decoder: 6 parameters (room_size, pre_delay, diffusion, damping, wet_gain, dry_gain)
-   - Distortion Decoder: 4 parameters (gain, bias, tone, mix)
-   - Pitch Decoder: 3 parameters (pitch_shift, formant_shift, mix)
+   - Reverb Decoder: 5 parameters (room_size, pre_delay, diffusion, damping, wet_gain)
+   - Distortion Decoder: 2 parameters (gain, color)
+   - Pitch Decoder: 1 parameters (pitch)
 
 ### 🔄 Cross-Attention Fusion Benefits
 

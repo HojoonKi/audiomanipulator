@@ -1334,20 +1334,12 @@ def main():
     parser.add_argument('--weight_decay', type=float, default=1e-5,
                        help='Weight decay')
     
-    # 가이드 프리셋 관련 (사전 훈련 비활성화시에만 사용)
-    parser.add_argument('--use_guide_presets', action='store_true', default=False,
-                       help='Fine-tuned guide preset 사용 여부 (enable_pretrain과 함께 사용 불가)')
-    parser.add_argument('--guide_epochs', type=int, default=20,
-                       help='Guide preset을 사용할 에포크 수 (enable_pretrain 비활성화시에만)')
-    parser.add_argument('--guide_weight', type=float, default=0.5,
-                       help='Guide loss의 가중치 (enable_pretrain 비활성화시에만)')
-    
     # 사전 훈련 관련 (권장: 사전 훈련 사용시 guide preset 옵션들은 무시됨)
     parser.add_argument('--enable_pretrain', action='store_true', default=False,
                        help='Guide preset으로 사전 훈련 활성화 (일반 훈련은 Pure Description)')
     parser.add_argument('--pretrain_epochs', type=int, default=100,
                        help='사전 훈련 에포크 수')
-    parser.add_argument('--pretrain_batch_size', type=int, default=8,
+    parser.add_argument('--pretrain_batch_size', type=int, default=4,
                        help='사전 훈련 배치 크기 (기본값: 일반 훈련과 동일)')
     parser.add_argument('--pretrain_lr', type=float, default=3e-4,
                        help='사전 훈련 학습률')
