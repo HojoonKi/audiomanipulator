@@ -2,7 +2,7 @@ services:
   audiomanipulator:
     build: .
     container_name: audiomanipulator
-    
+    user: "${UID:-1000}:${GID:-1000}"  # 호스트 사용자로 실행하여 entrypoint 활성화
     # GPU support for RTX 4090 (legacy runtime format)
     runtime: nvidia
     

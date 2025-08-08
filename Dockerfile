@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     wget \
     curl \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Create workspace directory
@@ -25,11 +26,9 @@ RUN mkdir -p /app
 WORKDIR /app
 
 # Setup Python environment (as root for universal access)
-RUN python3.10 -m venv venv
+RUN python3.10 -m venv venv \
+    && chmod -R 755 /app/venv
 ENV PATH="/app/venv/bin:$PATH"
-
-# Add virtual environment activation to .bashrc for interactive shells
-RUN echo 'source /app/venv/bin/activate' >> /root/.bashrc
 
 # Install Python packages
 COPY requirements.txt .
@@ -40,9 +39,10 @@ RUN pip install --upgrade pip \
 # Copy application
 COPY . .
 
-# Create necessary directories with full permissions
+# Create necessary directories with full permissions for any user
 RUN mkdir -p checkpoints output audio_dataset \
-    && chmod 777 checkpoints output audio_dataset
+    && chmod -R 755 checkpoints output audio_dataset \
+    && chmod -R 755 /app
 
 CMD ["bash"]
 EXPOSE 8080
@@ -51,3 +51,29 @@ EXPOSE 8080
 LABEL maintainer="HojoonKi"
 LABEL description="Audio Manipulator: Text-to-Audio Effect Generation"
 LABEL version="1.0"
+
+# Create entrypoint script for dynamic user setup
+RUN printf '#!/bin/bash\n\
+# Create user dynamically if not root\n\
+if [ "$(id -u)" != "0" ]; then\n\
+    USER_ID=$(id -u)\n\
+    GROUP_ID=$(id -g)\n\
+    # Create group if it does not exist\n\
+    if ! getent group $GROUP_ID > /dev/null 2>&1; then\n\
+        groupadd -g $GROUP_ID usergroup\n\
+    fi\n\
+    # Create user if it does not exist\n\
+    if ! getent passwd $USER_ID > /dev/null 2>&1; then\n\
+        useradd -u $USER_ID -g $GROUP_ID -m -s /bin/bash user\n\
+        echo "source /app/venv/bin/activate" >> /home/user/.bashrc\n\
+    fi\n\
+else\n\
+    # Root user - just add venv activation to bashrc\n\
+    echo "source /app/venv/bin/activate" >> /root/.bashrc\n\
+fi\n\
+# Activate virtual environment\n\
+source /app/venv/bin/activate\n\
+exec "$@"\n' > /entrypoint.sh \
+    && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
