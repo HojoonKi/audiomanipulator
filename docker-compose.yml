@@ -7,17 +7,17 @@ services:
     runtime: nvidia
     
     volumes:
-      - .:/home/audiomanipulator/app
-      - ./checkpoints:/home/audiomanipulator/app/checkpoints
-      - ./output:/home/audiomanipulator/app/output
-      - ./audio_dataset:/home/audiomanipulator/app/audio_dataset:ro
+      - .:/app
+      - ./checkpoints:/app/checkpoints
+      - ./output:/app/output
+      - ./audio_dataset:/app/audio_dataset
     
-    working_dir: /home/audiomanipulator/app
+    working_dir: /app
     stdin_open: true
     tty: true
     
     environment:
-      - PYTHONPATH=/home/audiomanipulator/app
+      - PYTHONPATH=/app
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - CUDA_VISIBLE_DEVICES=all

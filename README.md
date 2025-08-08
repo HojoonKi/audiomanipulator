@@ -165,7 +165,7 @@ pip install -r requirements.txt
 
 | Effect Type | Parameters | Description |
 |-------------|------------|-------------|
-| **Equalizer** | filter_type (5 types)<br/>freq (20-20kHz)<br/>gain (-20 to +20 dB)<br/>Q factor (0.1-10) | 3-band EQ: low-shelf, bell, high-shelf, low-pass, high-pass |
+| **Equalizer** | filter_type (5 types)<br/>freq (20-20kHz)<br/>gain (-20 to +20 dB)<br/>Q factor (0.1-10) | 5-band EQ: low-shelf, bell, high-shelf, low-pass, high-pass |
 | **Reverb** | room_size (0-1)<br/>damping (0-1)<br/>wet_level (0-1)<br/>dry_level (0-1) | Environmental reverb simulation |
 | **Distortion** | drive (0-1)<br/>gain (0-1) | Analog-style saturation |
 | **Pitch** | pitch (-12 to +12 semitones) | Pitch shifting without tempo change |

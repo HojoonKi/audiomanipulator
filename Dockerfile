@@ -19,49 +19,30 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create audiomanipulator user (will be overridden by docker-compose if needed)
-RUN groupadd -g 1000 audiomanipulator && \
-    useradd -u 1000 -g 1000 -m -s /bin/bash audiomanipulator && \
-    usermod -aG sudo audiomanipulator
+# Create workspace directory
+RUN mkdir -p /app
 
-# Create workspace directory with proper ownership
-RUN mkdir -p /home/audiomanipulator/app && \
-    chown -R audiomanipulator:audiomanipulator /home/audiomanipulator
+WORKDIR /app
 
-WORKDIR /home/audiomanipulator/app
-
-# Setup Python environment
-USER audiomanipulator
+# Setup Python environment (as root for universal access)
 RUN python3.10 -m venv venv
-ENV PATH="/home/audiomanipulator/app/venv/bin:$PATH"
+ENV PATH="/app/venv/bin:$PATH"
 
 # Add virtual environment activation to .bashrc for interactive shells
-RUN echo 'source /home/audiomanipulator/app/venv/bin/activate' >> ~/.bashrc
+RUN echo 'source /app/venv/bin/activate' >> /root/.bashrc
 
 # Install Python packages
-COPY --chown=audiomanipulator:audiomanipulator requirements.txt .
+COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip cache purge
+    && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 \
+    && pip install -r requirements.txt 
 
-# Copy application with proper ownership
-COPY --chown=audiomanipulator:audiomanipulator . .
+# Copy application
+COPY . .
 
-# Create necessary directories with proper permissions
+# Create necessary directories with full permissions
 RUN mkdir -p checkpoints output audio_dataset \
-    && chmod 755 checkpoints output audio_dataset
-
-# Switch to root to setup entrypoint and sudo
-USER root
-
-# Copy and setup entrypoint script with proper permissions
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# Install sudo for entrypoint script
-RUN apt-get update && apt-get install -y sudo && rm -rf /var/lib/apt/lists/* \
-    && echo "audiomanipulator ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    && chmod 777 checkpoints output audio_dataset
 
 # Switch back to audiomanipulator user
 USER audiomanipulator
