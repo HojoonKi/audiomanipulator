@@ -59,7 +59,13 @@ docker-compose ps
 
 # 4. Enter the container for interactive use
 docker-compose exec audiomanipulator bash
+
+# 5. (컨테이너 내부) conda 환경이 자동 활성화됨
+python train.py --help
 ```
+
+- 모든 의존성은 environment.yml로 관리됩니다.
+- requirements.txt, venv 등은 더 이상 사용하지 않습니다.
 
 ### 🎯 Using the Container
 

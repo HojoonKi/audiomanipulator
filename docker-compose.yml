@@ -2,15 +2,12 @@ services:
   audiomanipulator:
     build: .
     container_name: audiomanipulator
-    user: "${UID:-1000}:${GID:-1000}"  # 호스트 사용자로 실행하여 entrypoint 활성화
-    # GPU support for RTX 4090 (legacy runtime format)
+    # GPU support for RTX 4090
     runtime: nvidia
     
     volumes:
       # 전체 프로젝트 마운트
       - .:/app
-      # venv는 별도 볼륨으로 보존
-      - audiomanipulator_venv:/app/venv
       # 데이터 디렉토리들
       - ./checkpoints:/app/checkpoints
       - ./output:/app/output
@@ -25,6 +22,3 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - CUDA_VISIBLE_DEVICES=all
-
-volumes:
-  audiomanipulator_venv:
