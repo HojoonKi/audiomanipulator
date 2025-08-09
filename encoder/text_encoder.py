@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +9,7 @@ from typing import Union, List, Optional
 import warnings
 from abc import ABC, abstractmethod
 
-# Try importing different text encoding libraries
+# Optional dependencies
 try:
     from sentence_transformers import SentenceTransformer
     SENTENCE_TRANSFORMERS_AVAILABLE = True
@@ -20,6 +20,7 @@ except ImportError:
 try:
     import transformers
     from transformers import AutoTokenizer, AutoModel
+    from transformers import logging as hf_logging
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
@@ -79,19 +80,36 @@ class CLAPTextEncoder(nn.Module):
         self.model_name = model_name
         self.clap_model = laion_clap.CLAP_Module(enable_fusion=False)
         
-        # 다운로드 가능한 체크포인트 시도
-        try:
-            self.clap_model.load_ckpt()  # 기본 체크포인트 로드
-        except:
+        # 다운로드/오프라인 제어
+        skip_download = os.getenv('CLAP_SKIP_DOWNLOAD', '0') in ('1', 'true', 'True')
+        ckpt_path = os.getenv('CLAP_CKPT_PATH')
+        loaded = False
+        
+        # 1) 로컬 경로 우선
+        if ckpt_path and os.path.exists(ckpt_path):
             try:
-                # 다른 체크포인트 시도
-                self.clap_model.load_ckpt('630k-best')
-            except:
-                try:
-                    # 또 다른 체크포인트 시도
-                    self.clap_model.load_ckpt('music_audioset_epoch_15_esc_90.14.pt')
-                except:
-                    print("⚠️ CLAP 체크포인트 로드 실패, 랜덤 초기화로 진행")
+                self.clap_model.load_ckpt(ckpt_path)
+                loaded = True
+                print(f"📦 CLAP 로컬 체크포인트 사용: {ckpt_path}")
+            except Exception as e:
+                print(f"⚠️ 로컬 CLAP 체크포인트 로드 실패: {e}")
+        
+        # 2) 원격 다운로드 허용 시에만 시도
+        if not loaded and not skip_download:
+            try:
+                self.clap_model.load_ckpt()  # 기본 체크포인트 로드
+                loaded = True
+            except Exception:
+                for alt in ('630k-best', 'music_audioset_epoch_15_esc_90.14.pt'):
+                    try:
+                        self.clap_model.load_ckpt(alt)
+                        loaded = True
+                        break
+                    except Exception:
+                        continue
+        
+        if not loaded:
+            print("⚠️ CLAP 체크포인트 로드 생략(로컬 없음 또는 다운로드 비활성). 랜덤 초기화로 진행")
         
         # CLAP 모델 구조 확인 및 gradient 설정
         print(f"🔍 CLAP 모델 구조 확인:")
@@ -279,7 +297,11 @@ class SentenceTransformerEncoder(BaseTextEncoder):
             raise ImportError("sentence-transformers not installed. Run: pip install sentence-transformers")
         
         self.model_name = model_name
-        self.model = SentenceTransformer(model_name)
+        hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN')
+        cache_folder = os.getenv('SENTENCE_TRANSFORMERS_HOME')
+        if cache_folder:
+            os.makedirs(cache_folder, exist_ok=True)
+        self.model = SentenceTransformer(model_name, use_auth_token=hf_token, cache_folder=cache_folder)
         
         # Freeze parameters
         for param in self.model.parameters():
@@ -300,58 +322,7 @@ class SentenceTransformerEncoder(BaseTextEncoder):
         return self.model.get_sentence_embedding_dimension()
 
 
-class HuggingFaceTextEncoder(nn.Module):
-    """
-    HuggingFace transformer-based text encoder
-    
-    Flexible option allowing use of various transformer models.
-    """
-    
-    def __init__(self, model_name='sentence-transformers/all-mpnet-base-v2'):
-        super().__init__()
-        
-        if not TRANSFORMERS_AVAILABLE:
-            raise ImportError("transformers not installed. Run: pip install transformers")
-        
-        self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
-        
-        # Freeze parameters
-        for param in self.model.parameters():
-            param.requires_grad = False
-    
-    def forward(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
-        """Encode text prompts"""
-        if isinstance(text_prompts, str):
-            text_prompts = [text_prompts]
-        
-        # Tokenize
-        encoded_input = self.tokenizer(
-            text_prompts, 
-            padding=True, 
-            truncation=True, 
-            return_tensors='pt'
-        )
-        
-        # Get embeddings
-        with torch.no_grad():
-            model_output = self.model(**encoded_input)
-            
-            # Use mean pooling of last hidden states
-            embeddings = self.mean_pooling(model_output, encoded_input['attention_mask'])
-        
-        return embeddings.float()
-    
-    def mean_pooling(self, model_output, attention_mask):
-        """Apply mean pooling to get sentence embeddings"""
-        token_embeddings = model_output[0]  # First element contains all token embeddings
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-    
-    def get_embedding_dim(self):
-        """Get embedding dimension"""
-        return self.model.config.hidden_size
+## Removed: HuggingFaceTextEncoder (not used)
 
 
 class E5TextEncoder(BaseTextEncoder):
@@ -367,8 +338,12 @@ class E5TextEncoder(BaseTextEncoder):
         
         self.device = device
         self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name).to(device)
+        hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN')
+        local_only = os.getenv('HF_LOCAL_ONLY', '0') in ('1', 'true', 'True') or os.getenv('TRANSFORMERS_OFFLINE', '0') in ('1', 'true', 'True')
+        if local_only:
+            os.environ['TRANSFORMERS_OFFLINE'] = '1'
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token, local_files_only=local_only)
+        self.model = AutoModel.from_pretrained(model_name, use_auth_token=hf_token, local_files_only=local_only).to(device)
         
         # 메모리 최적화: 모델 파라미터 동결
         for param in self.model.parameters():
@@ -517,155 +492,11 @@ class E5TextEncoder(BaseTextEncoder):
 
 
 
-class BGETextEncoder(nn.Module):
-    """
-    BAAI BGE (Beijing Academy of AI General Embedding) - Chinese SOTA model
-    
-    BGE models achieve excellent performance on embedding benchmarks,
-    especially good for Asian languages but also strong on English.
-    """
-    
-    def __init__(self, model_name='BAAI/bge-large-en-v1.5'):
-        super().__init__()
-        
-        if not TRANSFORMERS_AVAILABLE:
-            raise ImportError("transformers not installed. Run: pip install transformers")
-        
-        self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
-        
-        # Freeze parameters
-        for param in self.model.parameters():
-            param.requires_grad = False
-    
-    def forward(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
-        """Encode text prompts with BGE"""
-        if isinstance(text_prompts, str):
-            text_prompts = [text_prompts]
-        
-        # Tokenize
-        encoded_input = self.tokenizer(
-            text_prompts, 
-            padding=True, 
-            truncation=True, 
-            return_tensors='pt',
-            max_length=512
-        )
-        
-        # Move to device efficiently  
-        device = next(self.model.parameters()).device
-        encoded_input = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v 
-                        for k, v in encoded_input.items()}
-        
-        # Get embeddings with optimized settings
-        with torch.no_grad():
-            model_output = self.model(**encoded_input)
-            embeddings = model_output[0][:, 0]  # Use [CLS] token
-            
-            # L2 normalize embeddings
-            embeddings = F.normalize(embeddings, p=2, dim=1)
-        
-        return embeddings.float()
-    
-    def get_embedding_dim(self):
-        """Get embedding dimension"""
-        return self.model.config.hidden_size
+## Removed: BGETextEncoder (not used)
 
 
 
-class SimpleTextEncoder(nn.Module):
-    """
-    Simple text encoder using basic word embeddings
-    
-    Fallback option when other libraries are not available.
-    """
-    
-    def __init__(self, vocab_size=10000, embedding_dim=512, max_length=128):
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.embedding_dim = embedding_dim
-        self.max_length = max_length
-        
-        # Simple word-to-index mapping (in practice, use a proper tokenizer)
-        self.word_to_idx = {}
-        self.idx_to_word = {}
-        self.next_idx = 1  # 0 reserved for padding
-        
-        # Embedding layer
-        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
-        self.position_encoding = nn.Embedding(max_length, embedding_dim)
-        
-        # Simple transformer-like processing
-        self.attention = nn.MultiheadAttention(embedding_dim, num_heads=8, batch_first=True)
-        self.norm = nn.LayerNorm(embedding_dim)
-        self.global_pool = nn.AdaptiveAvgPool1d(1)
-    
-    def tokenize(self, text: str) -> List[int]:
-        """Simple tokenization"""
-        words = text.lower().split()
-        tokens = []
-        
-        for word in words:
-            if word not in self.word_to_idx:
-                if self.next_idx < self.vocab_size:
-                    self.word_to_idx[word] = self.next_idx
-                    self.idx_to_word[self.next_idx] = word
-                    self.next_idx += 1
-                else:
-                    word = '<UNK>'  # Unknown token
-                    if '<UNK>' not in self.word_to_idx:
-                        self.word_to_idx['<UNK>'] = self.vocab_size - 1
-            
-            tokens.append(self.word_to_idx.get(word, self.vocab_size - 1))
-        
-        # Pad or truncate to max_length
-        if len(tokens) > self.max_length:
-            tokens = tokens[:self.max_length]
-        else:
-            tokens.extend([0] * (self.max_length - len(tokens)))
-        
-        return tokens
-    
-    def forward(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
-        """Encode text prompts"""
-        if isinstance(text_prompts, str):
-            text_prompts = [text_prompts]
-        
-        # Tokenize all texts
-        batch_tokens = []
-        for text in text_prompts:
-            tokens = self.tokenize(text)
-            batch_tokens.append(tokens)
-        
-        tokens_tensor = torch.tensor(batch_tokens, dtype=torch.long)
-        batch_size, seq_len = tokens_tensor.shape
-        
-        # Move to same device as model
-        device = next(self.parameters()).device
-        tokens_tensor = tokens_tensor.to(device)
-        
-        # Get embeddings
-        word_embeddings = self.embedding(tokens_tensor)
-        
-        # Add position encodings
-        positions = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
-        pos_embeddings = self.position_encoding(positions)
-        
-        embeddings = word_embeddings + pos_embeddings
-        
-        # Apply attention
-        attended, _ = self.attention(embeddings, embeddings, embeddings)
-        attended = self.norm(attended + embeddings)
-        
-        # Global pooling to get sentence embedding
-        sentence_embeddings = self.global_pool(attended.transpose(1, 2)).squeeze(-1)
-        
-        return sentence_embeddings
-    
-    def get_embedding_dim(self):
-        """Get embedding dimension"""
-        return self.embedding_dim
+## Removed: SimpleTextEncoder (not used)
     """
     Simple text encoder using basic word embeddings
     
@@ -760,206 +591,98 @@ class SimpleTextEncoder(nn.Module):
 
 
 class TextEncoderFactory:
-    """Factory class to create appropriate text encoder based on available libraries"""
-    
+    """Factory to create text encoders: E5, SentenceTransformer, or CLAP only"""
+
     @staticmethod
     def create_encoder(encoder_type='auto', **kwargs):
-        """
-        Create text encoder
-        
-        Args:
-            encoder_type: 'clap', 'sentence_transformer', 'huggingface', 'simple', or 'auto'
-            **kwargs: Additional arguments for specific encoders
-            
-        Returns:
-            TextEncoder instance
-        """
-        
         if encoder_type == 'auto':
-            # Try to use the best available encoder (prioritize performance)
             if TRANSFORMERS_AVAILABLE:
-                print("� Using E5-large encoder (SOTA performance, open source)")
+                print("Using E5-large encoder (open source, strong performance)")
                 return E5TextEncoder(model_name='intfloat/e5-large-v2', **kwargs)
-            elif SENTENCE_TRANSFORMERS_AVAILABLE:
-                print("📝 Using SentenceTransformer encoder (CLAP checkpoint not found)")
+            if SENTENCE_TRANSFORMERS_AVAILABLE:
+                print("Using SentenceTransformer encoder")
                 return SentenceTransformerEncoder(model_name='all-mpnet-base-v2', **kwargs)
-            elif CLAP_AVAILABLE:
-                print("🎵 Using CLAP text encoder (best for audio tasks)")
+            if CLAP_AVAILABLE:
+                print("Using CLAP text encoder (audio-text specialized)")
                 return CLAPTextEncoder(**kwargs)
-            else:
-                print("⚠️ Using simple text encoder (install other libraries for better performance)")
-                return SimpleTextEncoder(**kwargs)
-        
-        elif encoder_type == 'e5':
+            raise ImportError("No supported text encoder available. Install transformers, sentence-transformers or laion_clap.")
+
+        if encoder_type == 'e5':
             if not TRANSFORMERS_AVAILABLE:
                 raise ImportError("Transformers not available. Install with: pip install transformers")
             return E5TextEncoder(**kwargs)
-        
-        elif encoder_type == 'bge':
-            if not TRANSFORMERS_AVAILABLE:
-                raise ImportError("Transformers not available. Install with: pip install transformers")
-            return BGETextEncoder(**kwargs)
-        
-        elif encoder_type == 'clap':
-            if not CLAP_AVAILABLE:
-                raise ImportError("CLAP not available. Install with: pip install laion_clap")
-            return CLAPTextEncoder(**kwargs)
-        
-        elif encoder_type == 'sentence_transformer':
+
+        if encoder_type == 'sentence_transformer':
             if not SENTENCE_TRANSFORMERS_AVAILABLE:
                 raise ImportError("SentenceTransformers not available. Install with: pip install sentence-transformers")
             return SentenceTransformerEncoder(**kwargs)
-        
-        elif encoder_type == 'huggingface':
-            if not TRANSFORMERS_AVAILABLE:
-                raise ImportError("Transformers not available. Install with: pip install transformers")
-            return HuggingFaceTextEncoder(**kwargs)
-        
-        elif encoder_type == 'simple':
-            return SimpleTextEncoder(**kwargs)
-        
-        else:
-            raise ValueError(f"Unknown encoder type: {encoder_type}")
+
+        if encoder_type == 'clap':
+            if not CLAP_AVAILABLE:
+                raise ImportError("CLAP not available. Install with: pip install laion_clap")
+            return CLAPTextEncoder(**kwargs)
+
+        raise ValueError(f"Unknown encoder type: {encoder_type}")
 
 
 # Example usage and recommendations
 def recommend_text_encoder():
-    """Provide recommendations for text encoders based on use case"""
-    
+    """Provide recommendations for text encoders (simplified)"""
     recommendations = {
         "🚀 High Performance (Recommended)": {
             "encoder": "E5",
-            "model": "intfloat/e5-large-v2", 
+            "model": "intfloat/e5-large-v2",
             "install": "pip install transformers",
-            "pros": ["SOTA embedding performance", "Open source", "Fast inference", "Microsoft quality"],
-            "cons": ["Larger than BERT-base", "Needs transformers library"]
         },
-        
-        "🔥 Chinese/Asian Languages": {
-            "encoder": "BGE",
-            "model": "BAAI/bge-large-en-v1.5",
-            "install": "pip install transformers", 
-            "pros": ["Excellent for Asian languages", "SOTA Chinese performance", "Good English too"],
-            "cons": ["Chinese-centric training", "Large model size"]
-        },
-        
-        "🎯 Task-Specific": {
-            "encoder": "Instructor",
-            "model": "hkunlp/instructor-xl",
-            "install": "pip install InstructorEmbedding transformers",
-            "pros": ["Task-specific instructions", "Flexible performance", "Domain adaptation"],
-            "cons": ["Complex usage", "Instruction engineering needed"]
-        },
-        
-        "🎵 Audio Processing (Classic)": {
-            "encoder": "CLAP",
-            "model": "630k-audioset-best",
-            "install": "pip install laion_clap",
-            "pros": ["Designed for audio-text alignment", "Best semantic understanding", "Pre-trained on audio data"],
-            "cons": ["Larger model size", "Requires more resources", "Checkpoint availability issues"]
-        },
-        
-        "⚡ Fast & Lightweight": {
-            "encoder": "SentenceTransformers",
-            "model": "all-MiniLM-L6-v2",
-            "install": "pip install sentence-transformers",
-            "pros": ["Fast inference", "Small model size", "Good general performance"],
-            "cons": ["Not specifically trained for audio tasks"]
-        },
-        
-        "🎯 High Quality General": {
+        "📝 General Purpose": {
             "encoder": "SentenceTransformers",
             "model": "all-mpnet-base-v2",
             "install": "pip install sentence-transformers",
-            "pros": ["High quality embeddings", "Good semantic understanding"],
-            "cons": ["Larger than MiniLM", "Slower inference"]
-        }
+        },
+        "🎵 Audio-Text Specialized": {
+            "encoder": "CLAP",
+            "model": "630k-audioset-best",
+            "install": "pip install laion_clap",
+        },
     }
-    
     print("📋 TEXT ENCODER RECOMMENDATIONS")
     print("=" * 50)
-    
     for use_case, info in recommendations.items():
         print(f"\n{use_case}")
         print(f"  Model: {info['encoder']} - {info['model']}")
         print(f"  Install: {info['install']}")
-        print(f"  Pros: {', '.join(info['pros'])}")
-        print(f"  Cons: {', '.join(info['cons'])}")
 
 
 if __name__ == "__main__":
     print("🔤 Text Encoder for Audio Processing")
     print("=" * 50)
-    
-    # Show recommendations
     recommend_text_encoder()
-    
     print("\n🧪 Testing Available Encoders...")
-    
-    # Test what's available
     test_prompt = "deep monster voice with heavy reverb"
-    
     try:
         encoder = TextEncoderFactory.create_encoder('auto')
         embeddings = encoder([test_prompt])
         print(f"✅ Created encoder: {type(encoder).__name__}")
-        print(f"   Embedding shape: {embeddings.shape}")
-        print(f"   Embedding dim: {encoder.get_embedding_dim()}")
+        if hasattr(encoder, 'get_embedding_dim'):
+            print(f"   Embedding dim: {encoder.get_embedding_dim()}")
     except Exception as e:
         print(f"❌ Error creating encoder: {e}")
-    
-    print("\n💡 For your monster voice project, I recommend:")
-    print("   1st choice: E5-large (최고 성능 오픈소스)")
-    print("   2nd choice: BGE-large (아시아 언어 특화)")  
-    print("   3rd choice: Instructor-XL (task-specific)")
-    print("   4th choice: SentenceTransformers all-mpnet-base-v2 (안정적)")
-    
-    print("\n🔥 New Models Available:")
-    print("   E5: pip install transformers → TextEncoderFactory.create_encoder('e5')")
-    print("   BGE: pip install transformers → TextEncoderFactory.create_encoder('bge')")
-    print("   Instructor: pip install InstructorEmbedding → TextEncoderFactory.create_encoder('instructor')")
 
 
 def get_text_encoder(encoder_type: str = 'e5-large', **kwargs):
-    """
-    Factory function to get text encoder (for pipeline compatibility)
-    
-    Args:
-        encoder_type: Type of encoder to create
-            - 'e5-large': E5-large v2 model (best performance)
-            - 'bge-large': BGE-large English model
-            - 'instructor': Instructor XL model
-            - 'clap': CLAP text encoder
-            - 'sentence-transformer': SentenceTransformer model
-            - 'simple': Simple text encoder
-            - 'auto': Automatically choose best available
-            
-    Returns:
-        Text encoder instance with encode() method
-    """
-    # Map pipeline encoder names to factory names
+    """Factory function to get text encoder (E5, SentenceTransformer, or CLAP)"""
     encoder_mapping = {
         'e5-large': 'e5',
-        'bge-large': 'bge', 
-        'instructor': 'instructor',
         'clap': 'clap',
         'sentence-transformer': 'sentence_transformer',
-        'simple': 'simple',
-        'auto': 'auto'
+        'auto': 'auto',
     }
-    
     factory_type = encoder_mapping.get(encoder_type, encoder_type)
     encoder = TextEncoderFactory.create_encoder(factory_type, **kwargs)
-    
-    # Ensure encoder has encode method (some might only have forward)
     if not hasattr(encoder, 'encode'):
-        # Add encode method as alias to forward
         def encode_method(texts):
             if isinstance(texts, str):
                 texts = [texts]
-            # 배치 처리를 위해 forward 직접 호출 (gradient 허용)
-            result = encoder(texts)
-            return result  # GPU에서 tensor 그대로 반환
+            return encoder(texts)
         encoder.encode = encode_method
-    
     return encoder

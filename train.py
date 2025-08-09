@@ -1302,7 +1302,7 @@ def main():
     parser = argparse.ArgumentParser(description='Audio Effect Preset Generation Training')
     
     # 데이터 관련
-    parser.add_argument('--data_path', type=str, default='/workspace/AudioManipulator',
+    parser.add_argument('--data_path', type=str, default='/workspace/audiomanipulator',
                        help='데이터셋 루트 경로')
     parser.add_argument('--sample_rate', type=int, default=44100,
                        help='오디오 샘플링 레이트')
@@ -1325,7 +1325,7 @@ def main():
                        help='히든 레이어 차원')
     
     # 훈련 관련
-    parser.add_argument('--batch_size', type=int, default=128,
+    parser.add_argument('--batch_size', type=int, default=64,
                        help='배치 크기')
     parser.add_argument('--num_epochs', type=int, default=100,
                        help='전체 에포크 수')
@@ -1376,11 +1376,6 @@ def main():
         print(f"⚠️  요청된 GPU 수({args.num_gpus})가 사용 가능한 GPU 수({available_gpus})보다 많습니다.")
         args.num_gpus = available_gpus
     
-    # Argument validation 및 충돌 해결
-    if args.enable_pretrain and args.use_guide_presets:
-        print("⚠️  사전 훈련 활성화시 일반 훈련에서는 Guide Preset이 자동 비활성화됩니다.")
-        print("   Guide 관련 arguments (--guide_epochs, --guide_weight)는 무시됩니다.")
-        print("   사전 훈련: Guide Preset → 일반 훈련: Pure Description")
     
     # Weights & Biases 초기화 (최적화된 설정)
     if args.use_wandb:

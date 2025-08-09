@@ -1,20 +1,15 @@
 name: audiotools
 channels:
-  - defaults
-  - conda-forge
+  - pytorch
   - nvidia
+  - conda-forge
 dependencies:
   - python=3.10
   - pip
   - numpy>=1.24.0
   - librosa>=0.10.0
-  - soundfile>=0.12.1
-  - transformers>=4.30.0
-  - sentence-transformers>=2.2.0
+  - pysoundfile>=0.12.1
   - tokenizers>=0.13.0
-  - pedalboard>=0.7.0
-  - crepe>=0.0.12
-  - wandb>=0.15.0
   - tqdm>=4.65.0
   - accelerate>=0.20.0
   - einops>=0.7.0
@@ -26,4 +21,9 @@ dependencies:
   - torchaudio
   - pytorch-cuda=12.1
   - pip:
+      - transformers>=4.30.0
+      - sentence-transformers>=2.2.0
+      - pedalboard>=0.7.0
+      - crepe>=0.0.12
+      - wandb>=0.15.0
       - laion-clap
