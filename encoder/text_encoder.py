@@ -29,9 +29,9 @@ except ImportError:
 try:
     import laion_clap
     CLAP_AVAILABLE = True
-except ImportError:
+except Exception as e:
     CLAP_AVAILABLE = False
-    warnings.warn("laion_clap not available. Install with: pip install laion_clap")
+    warnings.warn(f"laion_clap not available or failed to import ({e}). Install with: pip install laion_clap")
 
 
 class BaseTextEncoder(nn.Module, ABC):

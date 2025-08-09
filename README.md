@@ -19,8 +19,7 @@ This project aims to develop an **AI model that automatically generates audio ef
 
 ### Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
-- [Docker Compose](https://docs.docker.com/compose/install/) (1.29+)
-- For GPU support (RTX 3090/4090): [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+- For GPU support (RTX 20xx/30xx/40xx): [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 
 ### 🔧 GPU Setup (RTX 3090/4090 Users)
 
@@ -44,23 +43,20 @@ sudo systemctl restart docker
 docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
 ```
 
-### 🚀 Complete Setup Guide
+### 🚀 Complete Setup Guide (run.sh 기반)
 
 ```bash
-# 1. Clone the repository
+# 1) Clone
 git clone https://github.com/HojoonKi/audiomanipulator.git
 cd audiomanipulator
 
-# 2. Build and start container in background
-docker-compose up -d --build
+# 2) (권장) 허깅페이스 토큰 설정: 모델/토크나이저 다운로드를 위해 필요할 수 있음
+export HUGGINGFACE_HUB_TOKEN=hf_xxx
 
-# 3. Verify container is running
-docker-compose ps
+# 3) 컨테이너 빌드 및 진입
+./run.sh
 
-# 4. Enter the container for interactive use
-docker-compose exec audiomanipulator bash
-
-# 5. (컨테이너 내부) conda 환경이 자동 활성화됨
+# 4) (컨테이너 내부) conda 환경 자동 활성화
 python train.py --help
 ```
 
@@ -69,34 +65,35 @@ python train.py --help
 
 ### 🎯 Using the Container
 
-Once the container is built and running, enter it and use the tools directly:
+컨테이너는 `run.sh` 실행 시 자동으로 진입합니다. 이미 실행 중인 컨테이너에 다시 접속하려면:
 
 ```bash
-# Enter the container
-docker-compose exec audiomanipulator bash
+docker exec -it audiomanipulator bash
 
-# Now you're inside the container - run any commands you need:
-python test.py --help     # See test options
-python train.py --help    # See training options
-ls audio_dataset/         # Browse available audio files
-nvidia-smi               # Check GPU status
+# 컨테이너 내부 예시
+python test.py --help
+python train.py --help
+nvidia-smi
 ```
-
-That's it! From here, you can run training, testing, or any other commands directly inside the container environment.
 
 ### 🎛️ Container Management
 
 ```bash
-# Essential commands
-docker-compose up -d --build     # Build and start container
-docker-compose exec audiomanipulator bash  # Enter container  
-docker-compose ps                # Check running status
-docker-compose logs -f           # View container logs
-docker-compose restart           # Restart container
-docker-compose down             # Stop and remove container
+# Build & run and attach
+./run.sh
+
+# Attach to running container later
+docker exec -it audiomanipulator bash
+
+# Stop / remove
+docker stop audiomanipulator
+docker rm audiomanipulator
+
+# Logs (follow)
+docker logs -f audiomanipulator
 ```
 
-### 🔧 GPU Support (RTX 3090/4090 Ready)
+### 🔧 GPU Support (CUDA 12.1 Ready)
 
 The container is pre-configured with CUDA 12.1 for RTX 3090/4090 support. Once inside the container, verify it's working:
 
@@ -111,9 +108,9 @@ nvidia-smi
 ```
 
 **Note**: 
-- CUDA 12.1 support is enabled for RTX 3090/4090 compatibility
-- If you don't have an NVIDIA GPU, the container will automatically fall back to CPU mode
-- For older GPUs, you may need to modify the Dockerfile to use CUDA 11.8
+- CUDA 12.1 기반으로 구성됨
+- NVIDIA GPU가 없으면 자동으로 CPU 모드로 동작
+- 구형 GPU는 Dockerfile에서 CUDA 11.8 등으로 변경 필요할 수 있음
 
 ## 🛠️ Alternative Installation Methods
 

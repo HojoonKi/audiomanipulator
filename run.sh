@@ -19,7 +19,6 @@ docker run \
   -it \
   --env PYTHONPATH=/app \
   --env HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN:-} \
-  --env HF_HUB_ENABLE_HF_TRANSFER=1 \
   --env TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0} \
   --env HF_LOCAL_ONLY=${HF_LOCAL_ONLY:-0} \
   --env SENTENCE_TRANSFORMERS_HOME=/root/.cache/sentence-transformers \
