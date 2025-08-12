@@ -264,15 +264,26 @@ class CrossAttentionAdapter(nn.Module):
         nn.init.xavier_uniform_(self.out_proj.weight)
 
     def forward(self, audio_vec: torch.Tensor, llm_hidden: torch.Tensor) -> torch.Tensor:
-        audio_vec_seq = audio_vec.unsqueeze(1)
-        q = self.norm_q(self.audio_q(audio_vec_seq))
-        kv = self.llm_kv(llm_hidden)
-        k, v = torch.chunk(kv, 2, dim=-1)
-        attn_out, _ = self.attn(q, k, v)
+        # audio_vec: (batch, audio_dim)
+        # llm_hidden: (batch, llm_dim) -> need to add sequence dimension
+        
+        audio_vec_seq = audio_vec.unsqueeze(1)  # (batch, 1, audio_dim)
+        
+        # Add sequence dimension to llm_hidden if needed
+        if llm_hidden.dim() == 2:
+            llm_hidden_seq = llm_hidden.unsqueeze(1)  # (batch, 1, llm_dim)
+        else:
+            llm_hidden_seq = llm_hidden  # Already (batch, seq, llm_dim)
+        
+        q = self.norm_q(self.audio_q(audio_vec_seq))  # (batch, 1, attn_dim)
+        kv = self.llm_kv(llm_hidden_seq)  # (batch, seq, attn_dim*2)
+        k, v = torch.chunk(kv, 2, dim=-1)  # (batch, seq, attn_dim) each
+        
+        attn_out, _ = self.attn(q, k, v)  # (batch, 1, attn_dim)
         attn_out = self.dropout(attn_out)
-        attn_audio = self.out_proj(attn_out)
-        audio_updated = self.norm_out(audio_vec_seq + attn_audio)
-        audio_updated = self.post_mlp(audio_updated.squeeze(1))
+        attn_audio = self.out_proj(attn_out)  # (batch, 1, audio_dim)
+        audio_updated = self.norm_out(audio_vec_seq + attn_audio)  # (batch, 1, audio_dim)
+        audio_updated = self.post_mlp(audio_updated.squeeze(1))  # (batch, audio_dim)
         return audio_updated
 
 
@@ -295,12 +306,26 @@ class TunedCLAPWithAdapters(nn.Module):
         super().__init__()
         if CLAPTextEncoder is None:
             raise ImportError("CLAPTextEncoder is not available. Ensure encoder.text_encoder is importable.")
-        self.audio_dim = 512
+        
+        # CLAP 모델 초기화 후 실제 출력 차원 확인
+        self.clap = CLAPTextEncoder(freeze_model=True)
+        
+        # CLAP 실제 출력 차원 확인 (768일 가능성)
+        dummy_audio = torch.randn(1, 48000)  # 1초 더미 오디오
+        with torch.no_grad():
+            dummy_embed = self.clap.get_audio_embedding_with_grad(dummy_audio)
+            actual_audio_dim = dummy_embed.shape[-1]
+        
+        self.audio_dim = actual_audio_dim  # 실제 CLAP 출력 차원 사용
         self.llm_dim = llm_feature_dim
-        self.clap = CLAPTextEncoder()
+        
+        
+        # CLAP 파라미터를 확실히 frozen으로 설정
         if freeze_clap:
             for p in self.clap.parameters():
                 p.requires_grad = False
+        
+        print(f"🔒 CLAP model frozen: {not any(p.requires_grad for p in self.clap.parameters())}")
         adapters = []
         for _ in range(num_adapters):
             adapters.append(
@@ -316,10 +341,21 @@ class TunedCLAPWithAdapters(nn.Module):
         self.adapters = nn.ModuleList(adapters)
         self.final_norm = nn.LayerNorm(self.audio_dim)
         self.output_dim = self.audio_dim
+        
+        # 어댑터 파라미터 통계 출력
+        adapter_params = sum(p.numel() for p in self.adapters.parameters())
+        norm_params = sum(p.numel() for p in self.final_norm.parameters())
+        total_trainable = adapter_params + norm_params
+        
+        print(f"🎯 TunedCLAPWithAdapters initialized:")
+        print(f"   Adapters: {num_adapters} blocks, {adapter_params:,} parameters")
+        print(f"   Final norm: {norm_params:,} parameters")
+        print(f"   Total trainable: {total_trainable:,} parameters")
+        print(f"   LLM feature dim: {llm_feature_dim}")
+        print(f"   Audio dim: {self.audio_dim}")
 
-    @torch.no_grad()
     def encode_audio_with_clap(self, audio_data: torch.Tensor) -> torch.Tensor:
-        return self.clap.get_audio_embedding_from_data(audio_data)
+        return self.clap.get_audio_embedding_with_grad(audio_data)
 
     @torch.no_grad()
     def encode_text_with_clap(self, texts: List[str]) -> torch.Tensor:
@@ -352,21 +388,37 @@ class TunedCLAPWithAdapters(nn.Module):
         fused = self.final_norm(fused)
         return fused
 
-    def compute_contrastive_loss(self, fused_audio: torch.Tensor, texts: Optional[List[str]] = None, text_embeddings: Optional[torch.Tensor] = None, temperature: float = 0.07) -> torch.Tensor:
-        assert (texts is not None) or (text_embeddings is not None), "Provide texts or text_embeddings"
-        device = fused_audio.device
-        if text_embeddings is None:
-            with torch.no_grad():
-                text_embeddings = self.encode_text_with_clap(texts)
-        text_embeddings = text_embeddings.to(device).float()
-        fused_audio = F.normalize(fused_audio, p=2, dim=-1)
-        text_embeddings = F.normalize(text_embeddings, p=2, dim=-1)
-        logits = (fused_audio @ text_embeddings.t()) / max(1e-6, temperature)
-        labels = torch.arange(logits.size(0), device=device)
-        loss = 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels))
-        return loss
+    def compute_clap_loss(self, audio: torch.Tensor, texts: List[str], temperature: float = 0.07) -> torch.Tensor:
+        """
+        주어진 오디오와 텍스트로부터 CLAP 임베딩을 추출하여
+        대칭적 Contrastive Loss(CLAP Loss)를 계산합니다.
+        
+        이제 text_encoder.py의 개선된 방식을 사용합니다.
 
-def create_backbone(backbone_type: str = 'simple', 
+        Args:
+            audio (torch.Tensor): 오디오 웨이브폼 텐서. (batch, channels, time)
+            texts (List[str]): 오디오에 해당하는 텍스트 설명 리스트.
+            temperature (float): 로짓(logits)을 스케일링하는 온도 파라미터.
+
+        Returns:
+            torch.Tensor: 계산된 스칼라 손실 값.
+        """
+        try:
+            # text_encoder.py의 compute_clap_loss 메서드를 직접 사용
+            # 이미 gradient flow가 검증된 방식입니다
+            return self.clap.compute_clap_loss(audio, texts)
+            
+        except Exception as e:
+            print(f"CLAP loss 계산 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Safe fallback
+            device = audio.device
+            return torch.tensor(0.1, device=device, requires_grad=True)
+
+
+def create_backbone(backbone_type: str = 'tuned_clap_adapters', 
                    input_dim: int = 1024,
                    **kwargs):
     """

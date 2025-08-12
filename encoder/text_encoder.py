@@ -12,6 +12,10 @@ from typing import Union, List, Optional
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import warnings
 from abc import ABC, abstractmethod
+import torchaudio.transforms as T
+
+
+# Removed CLAPAudioEmbeddingFunction - using direct Hugging Face CLAP model instead
 
 # Optional dependencies
 try:
@@ -31,11 +35,11 @@ except ImportError:
     warnings.warn("transformers not available. Install with: pip install transformers")
 
 try:
-    import laion_clap
+    from transformers import ClapModel, ClapProcessor
     CLAP_AVAILABLE = True
 except Exception as e:
     CLAP_AVAILABLE = False
-    warnings.warn(f"laion_clap not available or failed to import ({e}). Install with: pip install laion_clap")
+    warnings.warn(f"transformers CLAP not available or failed to import ({e}). Install with: pip install transformers")
 
 @contextmanager
 def _suppress_output(quiet: bool):
@@ -109,396 +113,160 @@ class BaseTextEncoder(nn.Module, ABC):
 
 class CLAPTextEncoder(nn.Module):
     """
-    CLAP-based text encoder - Best for audio-text tasks
-    
-    CLAP (Contrastive Language-Audio Pre-training) is specifically designed
-    for audio-text alignment, making it ideal for our use case.
-    
-    Implements singleton-like behavior to avoid duplicate weight loading.
+    Hugging Face CLAP 기반 인코더.
+    자기 지도 학습을 위한 미분 가능한 오디오 임베딩 추출 기능을 포함합니다.
     """
-    
-    _instances = {}  # 모델별 인스턴스 캐시
-    
-    def __new__(cls, model_name='630k-audioset-best', freeze_audio_branch=False):
-        # 동일한 모델명으로 이미 생성된 인스턴스가 있으면 재사용
-        if model_name in cls._instances:
-            print(f"🔄 기존 CLAP 인스턴스 재사용: {model_name}")
-            return cls._instances[model_name]
-        
-        # 새 인스턴스 생성
-        instance = super().__new__(cls)
-        cls._instances[model_name] = instance
-        return instance
-    
-    def __init__(self, model_name='630k-audioset-best', freeze_audio_branch=False, quiet: Optional[bool] = None):
-        # 이미 초기화된 인스턴스는 스킵
+    def __init__(self, model_name='laion/clap-htsat-unfused', freeze_model=True):
+        super().__init__()
+        # 중복 초기화를 방지하기 위한 간단한 플래그
         if hasattr(self, '_initialized'):
             return
         
-        super().__init__()
-        
-        if not CLAP_AVAILABLE:
-            raise ImportError("laion_clap not installed. Run: pip install laion_clap")
-        
+        print(f"🎵 Initializing new CLAP instance: {model_name}")
         self.model_name = model_name
-        # 조용한 모드 설정 (환경변수 CLAP_VERBOSE=0/false 로 제어)
-        if quiet is None:
-            quiet_env = os.getenv('CLAP_VERBOSE', '1')
-            self._quiet = str(quiet_env).lower() in ('0', 'false', 'no')
-        else:
-            self._quiet = bool(quiet)
+        self.freeze_model = freeze_model
+        
+        # --- 1. 모델 및 프로세서 로드 ---
+        self.clap_model = ClapModel.from_pretrained(model_name, use_safetensors=True)
+        self.clap_processor = ClapProcessor.from_pretrained(model_name)
+        
+        # --- 2. 모델 고정(Freeze) 및 평가 모드(eval) 설정 ---
+        if self.freeze_model:
+            for param in self.clap_model.parameters():
+                param.requires_grad = False
+                print("🔒 CLAP model is frozen for embedding extraction.")
+        
+        # ⚠️ BatchNorm 에러 해결: 교사 모델은 항상 eval() 모드여야 합니다.
+        self.clap_model.eval()
 
-        def _log(*args, **kwargs):
-            if not self._quiet:
-                print(*args, **kwargs)
-        self._log = _log
+        # --- 3. 미분 가능한 오디오 전처리기 생성 (torchaudio) ---
+        # 이 변환기들은 한 번만 생성하여 재사용합니다.
+        feature_extractor = self.clap_processor.feature_extractor
+        self.target_sr = feature_extractor.sampling_rate
+        n_mels = feature_extractor.feature_size
+        n_fft = feature_extractor.n_fft
+        hop_length = feature_extractor.hop_length
+        win_length = n_fft  # 일반적인 관례
+        
+        self.resampler = T.Resample(orig_freq=48000, new_freq=self.target_sr) # 입력 오디오 SR을 48k로 가정
+        self.mel_spectrogram_converter = T.MelSpectrogram(
+            sample_rate=self.target_sr, n_fft=n_fft, win_length=win_length,
+            hop_length=hop_length, n_mels=n_mels
+        )
 
-        # 모듈 생성 시 출력 억제
-        with _suppress_output(self._quiet):
-            self.clap_model = laion_clap.CLAP_Module(enable_fusion=False)
-        
-        # 다운로드/오프라인 제어 및 캐시 확인
-        skip_download = os.getenv('CLAP_SKIP_DOWNLOAD', '0') in ('1', 'true', 'True')
-        ckpt_path = os.getenv('CLAP_CKPT_PATH')
-        ckpt_file = os.getenv('CLAP_CKPT_FILE')  # 명시적 파일 경로(최우선)
-        loaded = False
-        
-        def list_candidate_cache_dirs():
-            custom_cache = os.getenv('CLAP_CACHE_DIR')
-            candidates = [
-                custom_cache if custom_cache else None,
-                os.path.expanduser('~/.cache/laion_clap'),
-                os.path.expanduser('~/.cache/clip'),
-                '/tmp/laion_clap_cache',
-                './clap_cache'
-            ]
-            return [d for d in candidates if d]
-
-        def find_cached_ckpt_in_dir(cache_dir: str):
-            try:
-                if not os.path.isdir(cache_dir):
-                    return None
-                hints = ('clap', '630k', 'audioset', 'music_audioset', 'esc')
-                files = [
-                    f for f in os.listdir(cache_dir)
-                    if f.lower().endswith(('.pt', '.pth', '.bin')) and any(h in f.lower() for h in hints)
-                ]
-                if not files:
-                    return None
-                # 모델명과 유사도가 높은 파일 우선
-                def score(name: str) -> int:
-                    name_l = name.lower()
-                    s = 0
-                    if 'clap' in name_l:
-                        s += 2
-                    if '630k' in name_l or 'audioset' in name_l:
-                        s += 2
-                    if self.model_name.replace('-', '') in name_l.replace('-', ''):
-                        s += 1
-                    return s
-                files.sort(key=score, reverse=True)
-                return os.path.join(cache_dir, files[0])
-            except Exception:
-                return None
-
-        def find_any_cached_ckpt():
-            for d in list_candidate_cache_dirs():
-                path = find_cached_ckpt_in_dir(d)
-                if path:
-                    return path
-            return None
-        
-        # 0) 명시적 파일 경로가 지정된 경우 최우선 사용
-        if ckpt_file and os.path.isfile(ckpt_file):
-            try:
-                with _suppress_output(self._quiet):
-                    self.clap_model.load_ckpt(ckpt_file)
-                loaded = True
-                self._log(f"📦 CLAP 체크포인트 사용(명시 파일): {ckpt_file}")
-            except Exception as e:
-                print(f"⚠️ 명시 파일 로드 실패: {e}")
-
-        # 1) 명시적 로컬 경로 우선 (파일 또는 디렉토리 모두 허용)
-        if ckpt_path and os.path.exists(ckpt_path):
-            try:
-                target = ckpt_path
-                if os.path.isdir(ckpt_path):
-                    candidate = find_cached_ckpt_in_dir(ckpt_path)
-                    if candidate:
-                        target = candidate
-                with _suppress_output(self._quiet):
-                    self.clap_model.load_ckpt(target)
-                loaded = True
-                self._log(f"📦 CLAP 로컬 체크포인트 사용: {target}")
-            except Exception as e:
-                print(f"⚠️ 로컬 CLAP 체크포인트 로드 실패: {e}")
-        
-        # 2) 캐시된 모델 확인 (여러 경로에서 탐색)
-        if not loaded:
-            cached = find_any_cached_ckpt()
-            if cached:
-                try:
-                    with _suppress_output(self._quiet):
-                        self.clap_model.load_ckpt(cached)
-                    loaded = True
-                    self._log(f"📦 CLAP 캐시된 체크포인트 사용: {cached}")
-                except Exception:
-                    pass
-        
-        # 2.5) 패키지 내 기본 체크포인트 경로 시도 (모든 랭크에서 동일 절대경로)
-        if not loaded:
-            try:
-                pkg_dir = os.path.dirname(laion_clap.__file__)
-                built_in = os.path.join(pkg_dir, '630k-audioset-best.pt')
-                if os.path.isfile(built_in):
-                    with _suppress_output(self._quiet):
-                        self.clap_model.load_ckpt(built_in)
-                    loaded = True
-                    self._log(f"📦 CLAP 패키지 내 체크포인트 사용: {built_in}")
-            except Exception:
-                pass
-        
-        # 3) 원격 다운로드 허용 시에만 시도 (DDP 환경이면 rank 0 전용)
-        if not loaded and not skip_download:
-            is_ddp = DIST_AVAILABLE and dist.is_available() and dist.is_initialized()
-            is_rank0 = False
-            if is_ddp:
-                try:
-                    is_rank0 = (dist.get_rank() == 0)
-                except Exception:
-                    is_rank0 = False
-
-            if not is_ddp or is_rank0:
-                self._log("🌐 CLAP weight 다운로드 시도 중...")
-                try:
-                    with _suppress_output(self._quiet):
-                        self.clap_model.load_ckpt()
-                    loaded = True
-                    self._log("✅ CLAP weight 다운로드 완료")
-                except Exception as e:
-                    print(f"⚠️ 기본 CLAP 체크포인트 로드 실패: {e}")
-                    for alt in ('630k-best', 'music_audioset_epoch_15_esc_90.14.pt'):
-                        try:
-                            self._log(f"🔄 대안 체크포인트 시도: {alt}")
-                            with _suppress_output(self._quiet):
-                                self.clap_model.load_ckpt(alt)
-                            loaded = True
-                            self._log(f"✅ 대안 CLAP weight 로드 성공: {alt}")
-                            break
-                        except Exception as e2:
-                            print(f"⚠️ {alt} 로드 실패: {e2}")
-                            continue
-                # 다운로드 후 캐시 경로 안내
-                if loaded:
-                    cached = find_any_cached_ckpt()
-                    if cached:
-                        self._log(f"📁 CLAP 가중치 캐시 경로 탐지: {cached}")
-                        self._log(f"   다음 실행부터 캐시 재사용을 강제하려면: export CLAP_CKPT_FILE={cached}")
-            else:
-                self._log("⏳ Rank≠0: CLAP 가중치 캐시 대기 중...")
-                wait_secs = int(os.getenv('CLAP_DDP_WAIT_SECS', '300'))
-                start = time.time()
-                while time.time() - start < wait_secs:
-                    cached = find_any_cached_ckpt()
-                    if cached:
-                        try:
-                            with _suppress_output(self._quiet):
-                                self.clap_model.load_ckpt(cached)
-                            loaded = True
-                            self._log(f"📦 Rank≠0: 캐시 체크포인트 사용: {cached}")
-                            break
-                        except Exception:
-                            pass
-                    time.sleep(1.0)
-                try:
-                    dist.barrier()
-                except Exception:
-                    pass
-        
-        if not loaded:
-            print("⚠️ CLAP 체크포인트 로드 생략 - 로컬 캐시 없음 또는 다운로드 비활성화")
-            print("   환경변수 설정 예시:")
-            print("   export CLAP_CKPT_PATH=/path/to/your/clap_model.pt")
-            print("   export CLAP_SKIP_DOWNLOAD=0  # 다운로드 허용")
-        
-        # CLAP 모델 구조 확인 및 gradient 설정
-        if not self._quiet:
-            print(f"🔍 CLAP 모델 구조 확인:")
-            for name, module in self.clap_model.named_children():
-                print(f"   - {name}: {type(module)}")
-        
-        # CLAP 모델은 frozen하되 gradient computation은 허용
-        for param in self.clap_model.parameters():
-            param.requires_grad = False
-        if not self._quiet:
-            print("🔒 CLAP 모델 frozen (embedding 추출용, gradient flow는 허용)")
-        
-        # 학습 가능한 파라미터 수 출력
-        trainable_params = sum(p.numel() for p in self.clap_model.parameters() if p.requires_grad)
-        total_params = sum(p.numel() for p in self.clap_model.parameters())
-        if not self._quiet:
-            print(f"📊 CLAP 파라미터: {total_params:,} total, {trainable_params:,} trainable")
-        
-        # 초기화 완료 표시
         self._initialized = True
-        if not self._quiet:
-            print(f"✅ CLAP 인코더 초기화 완료: {model_name}")
-    
+        print(f"✅ CLAP Encoder initialized: {self.model_name}")
+
+    def to(self, device):
+        """모델과 전처리기들을 지정된 장치로 이동시키는 메서드"""
+        super().to(device)
+        self.clap_model.to(device)
+        self.resampler.to(device)
+        self.mel_spectrogram_converter.to(device)
+        return self
+
     def get_text_embedding(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
-        """
-        Get text embeddings (frozen)
-        
-        Args:
-            text_prompts: Single string or list of strings
-            
-        Returns:
-            embeddings: (batch_size, embedding_dim) tensor
-        """
+        """텍스트 임베딩 추출"""
         if isinstance(text_prompts, str):
             text_prompts = [text_prompts]
         
-        # Get CLAP text embeddings (always no_grad for text)
+        device = next(self.clap_model.parameters()).device
+        inputs = self.clap_processor(text=text_prompts, return_tensors="pt", padding=True).to(device)
+        
+        # 텍스트 임베딩은 그래디언트가 필요 없으므로 no_grad 사용
         with torch.no_grad():
-            text_embeddings = self.clap_model.get_text_embedding(text_prompts)
-        
-        return torch.from_numpy(text_embeddings).float()
-    
-    def get_audio_embedding_from_data(self, audio_data: Union[np.ndarray, torch.Tensor], use_tensor=True) -> torch.Tensor:
+            text_embeds = self.clap_model.get_text_features(**inputs)
+        return text_embeds
+
+    def get_audio_embedding_with_grad(self, audio_tensor: torch.Tensor) -> torch.Tensor:
         """
-        Get audio embeddings from CLAP model (frozen, embedding only)
-        
-        Args:
-            audio_data: Audio waveform data (batch_size, audio_length) or (audio_length,)
-            use_tensor: Whether to return tensor (for consistency)
-            
-        Returns:
-            embeddings: (batch_size, embedding_dim) tensor 
+        그래디언트가 흐르는 오디오 임베딩 추출 (자기 지도 학습용)
         """
-        try:
-            # Convert to numpy for CLAP (always expects numpy)
-            if isinstance(audio_data, torch.Tensor):
-                audio_np = audio_data.detach().cpu().numpy()
-                device = audio_data.device
+        import pdb
+        
+        # print(f"🔍 DEBUG: 입력 오디오 형태")
+        # print(f"   Shape: {audio_tensor.shape}")
+        # print(f"   Dtype: {audio_tensor.dtype}")
+        # print(f"   Device: {audio_tensor.device}")
+        # print(f"   Requires_grad: {audio_tensor.requires_grad}")
+        # print(f"   Min/Max values: {audio_tensor.min().item():.4f} / {audio_tensor.max().item():.4f}")
+        
+        # pdb.set_trace()  # 디버깅 중단점
+        
+        device = audio_tensor.device
+        self.to(device) # 모든 구성요소를 올바른 장치로 이동
+
+        # --- 1. 오디오 길이 패딩 (10초) ---
+        target_len_s = 10
+        target_samples = self.target_sr * target_len_s
+        
+        # 입력 오디오 차원 확인 및 정규화
+        if audio_tensor.dim() == 1:
+            audio_tensor = audio_tensor.unsqueeze(0)  # (samples,) -> (1, samples)
+        elif audio_tensor.dim() == 3:  # (batch, channels, samples)
+            if audio_tensor.size(1) > 1:
+                # 스테레오를 모노로 변환
+                audio_tensor = audio_tensor.mean(dim=1)  # (batch, samples)
             else:
-                audio_np = audio_data
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            
-            # Ensure batch dimension
-            if audio_np.ndim == 1:
-                audio_np = audio_np[np.newaxis, :]
-                
-            # Get CLAP embeddings (frozen model, no gradient)
-            with torch.no_grad():
-                embeddings = self.clap_model.get_audio_embedding_from_data(x=audio_np, use_tensor=False)
-            
-            # Convert to tensor
-            if isinstance(embeddings, np.ndarray):
-                embeddings = torch.from_numpy(embeddings).float()
-            
-            embeddings = embeddings.to(device)
-            
-            return embeddings
-            
-        except Exception as e:
-            print(f"❌ CLAP audio embedding 실패: {e}")
-            
-            # Safe fallback
-            device = audio_data.device if hasattr(audio_data, 'device') else torch.device('cpu')
-            batch_size = 1
-            if hasattr(audio_data, 'shape') and len(audio_data.shape) > 1:
-                batch_size = audio_data.shape[0]
-                
-            return torch.zeros(batch_size, 512, device=device)
-    
-    def compute_similarity(self, audio_embeddings: torch.Tensor, text_embeddings: torch.Tensor) -> torch.Tensor:
-        """
-        Compute simple cosine similarity between audio and text embeddings
+                audio_tensor = audio_tensor.squeeze(1)  # (batch, samples)
+        # 이제 audio_tensor는 (batch, samples) 형태
         
-        Args:
-            audio_embeddings: Audio embeddings [batch, dim]
-            text_embeddings: Text embeddings [batch, dim]
-            
-        Returns:
-            similarities: Cosine similarities [-1, 1]
-        """
-        # Normalize embeddings
-        audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
-        text_embeddings = F.normalize(text_embeddings, p=2, dim=-1)
+        batch_size, audio_len = audio_tensor.shape
+        padded_audios = torch.zeros(batch_size, target_samples, device=device)
         
-        # Compute cosine similarity
-        cosine_sim = F.cosine_similarity(audio_embeddings, text_embeddings, dim=-1)
-        
-        return cosine_sim
-    
-    def compute_clap_loss(self, audio_data: Union[np.ndarray, torch.Tensor], text_prompts: Union[str, List[str]]) -> torch.Tensor:
-        """
-        Compute simple CLAP loss - embedding 비교만!
-        
-        Args:
-            audio_data: Audio waveform data
-            text_prompts: Text descriptions
-            
-        Returns:
-            loss: Simple contrastive loss (1 - cosine_similarity)
-        """
-        try:
-            # Handle input formats - 배치 처리 개선
-            if isinstance(text_prompts, str):
-                text_prompts = [text_prompts]
-            # List는 그대로 사용 (배치 처리)
-                
-            # Convert to tensor if needed
-            if isinstance(audio_data, np.ndarray):
-                audio_tensor = torch.from_numpy(audio_data).float()
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                audio_tensor = audio_tensor.to(device)
+        for i in range(batch_size):
+            if audio_len > 0:
+                repeat_factor = (target_samples + audio_len - 1) // audio_len
+                # 1차원 텐서에 대해 repeat 적용
+                repeated_audio = audio_tensor[i].repeat(repeat_factor)
+                padded_audios[i] = repeated_audio[:target_samples]
             else:
-                audio_tensor = audio_data
-                device = audio_tensor.device
+                # 빈 오디오인 경우 0으로 채움
+                padded_audios[i] = torch.zeros(target_samples, device=device)
+
+        # --- 2. 미분 가능한 전처리 수행 ---
+        resampled_audios = self.resampler(padded_audios) # 입력 오디오 SR이 48k가 아닐 경우를 대비
+        mel_spectrograms = self.mel_spectrogram_converter(resampled_audios)
+        log_mel_spectrograms = (mel_spectrograms.clamp(min=1e-5).log() - torch.log(torch.tensor(1e-5)))
+
+        # --- 3. 직접 구현  ---
+        
+        # 차원 변환
+        transposed_spectrograms = log_mel_spectrograms.transpose(1, 2)  # [B, T, F]
+        
+        # --- 4. Direct 방식 사용 (gradient flow 유지) ---
+        # Processor 출력 형태를 따라함: [B, 1, T, F] = [8, 1, 1001, 64]
+        # Direct: [B, T, F] -> [B, 1, T, F]
+        input_spectrograms = transposed_spectrograms.unsqueeze(1)  # [B, 1, T, F]
+        # CLAP 모델 forward
+        audio_embeds = self.clap_model.audio_model(input_spectrograms).pooler_output
+        final_audio_embeds = self.clap_model.audio_projection(audio_embeds) # shape: [B, 512]
+        return final_audio_embeds
+
+    def compute_clap_loss(self, predicted_audios: torch.Tensor, text_prompts: List[str]) -> torch.Tensor:
+        """
+        학생 모델의 출력(predicted_audios)을 받아 CLAP Loss를 계산합니다.
+        """
+        # 1. 그래디언트가 흐르는 오디오 임베딩 추출
+        audio_embeds = self.get_audio_embedding_with_grad(predicted_audios)
+
+        # 2. 그래디언트가 필요 없는 텍스트 임베딩 추출
+        text_embeds = self.get_text_embedding(text_prompts)
+
+        # 3. Contrastive Loss (InfoNCE) 계산
+        audio_embeds_norm = F.normalize(audio_embeds, p=2, dim=-1)
+        text_embeds_norm = F.normalize(text_embeds, p=2, dim=-1)
+        
+        logits = (audio_embeds_norm @ text_embeds_norm.t()) / 0.07
+        device = audio_embeds.device
+        labels = torch.arange(logits.size(0), device=device)
+        loss = 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels))
             
-            # Ensure batch dimension
-            if audio_tensor.dim() == 1:
-                audio_tensor = audio_tensor.unsqueeze(0)
-            elif audio_tensor.dim() == 3:  # [batch, channels, samples]
-                audio_tensor = audio_tensor.squeeze(1)  # Remove channel dim for mono
-                
-            # Get embeddings (both frozen)
-            text_embeddings = self.get_text_embedding(text_prompts).to(device)
-            audio_embeddings = self.get_audio_embedding_from_data(audio_tensor)
+        return loss
             
-            # Ensure same batch size
-            if audio_embeddings.shape[0] != text_embeddings.shape[0]:
-                if text_embeddings.shape[0] == 1:
-                    text_embeddings = text_embeddings.expand(audio_embeddings.shape[0], -1)
-                elif audio_embeddings.shape[0] == 1:
-                    audio_embeddings = audio_embeddings.expand(text_embeddings.shape[0], -1)
-            
-            # Simple cosine similarity
-            similarities = self.compute_similarity(audio_embeddings, text_embeddings)
-            
-            # 더 직관적인 loss: similarity를 [0, 1] 범위로 정규화 후 1에서 빼기
-            # similarity: [-1, 1] → normalized: [0, 1] → loss: [0, 1] 
-            normalized_sim = (similarities.mean() + 1.0) / 2.0  # [-1,1] → [0,1]
-            loss = 1.0 - normalized_sim  # [0,1] → [1,0]
-            
-            # Ensure gradient flow (loss should require grad even if embeddings don't)
-            if not loss.requires_grad:
-                loss = loss.clone().requires_grad_(True)
-            
-            return loss
-            
-        except Exception as e:
-            print(f"❌ CLAP loss 실패: {e}")
-            device = audio_data.device if hasattr(audio_data, 'device') else torch.device('cpu')
-            return torch.tensor(1.0, device=device, requires_grad=True)
-    
-    def forward(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
-        """Forward pass for text encoding (backward compatibility)"""
+    def forward(self, text_prompts: Union[str, List[str]]):
+        """기본 forward는 텍스트 인코딩을 수행"""
         return self.get_text_embedding(text_prompts)
-    
-    def get_embedding_dim(self):
-        """Get the dimension of text embeddings"""
-        return 512  # CLAP text embedding dimension
 
 
 class SentenceTransformerEncoder(BaseTextEncoder):
@@ -554,8 +322,16 @@ class SentenceTransformerEncoder(BaseTextEncoder):
             safe_prompts.append(prompt)
         
         try:
+            # sentence-transformer는 기본적으로 inference mode에서 실행됨
+            # 따라서 no_grad() 컨텍스트에서 실행하고, 나중에 gradient가 필요한 곳에서 처리
             with torch.no_grad():
                 embeddings = self.model.encode(safe_prompts, convert_to_tensor=True, show_progress_bar=False)
+            
+            # inference mode 밖에서 새로운 텐서 생성 (gradient 가능)
+            # 이렇게 하면 원본 텐서의 값은 복사하되 gradient graph는 새로 시작됨
+            embeddings = embeddings.clone().detach()
+            embeddings.requires_grad_(True)
+            
         except Exception as e:
             print(f"❌ sentence-transformers 인코딩 실패: {e}")
             print(f"   입력 프롬프트: {safe_prompts}")
@@ -896,9 +672,9 @@ def recommend_text_encoder():
             "install": "pip install sentence-transformers",
         },
         "🎵 Audio-Text Specialized": {
-            "encoder": "CLAP",
-            "model": "630k-audioset-best",
-            "install": "pip install laion_clap",
+            "encoder": "CLAP (Hugging Face)",
+            "model": "laion/larger_clap_music_and_speech",
+            "install": "pip install transformers",
         },
     }
     print("📋 TEXT ENCODER RECOMMENDATIONS")

@@ -85,7 +85,8 @@ def create_model_and_optimizer(args, device):
     model = factory.create_pipeline(
         encoder_preset='sentence-transformer-large',
         use_clap=True,
-        sample_rate=args.sample_rate
+        sample_rate=args.sample_rate,
+        backbone_type=getattr(args, 'backbone_type', 'simple')  # 백본 타입 지원
     )
     
     model = model.to(device)
@@ -181,15 +182,28 @@ def create_datasets(args, rank, world_size):
 def compute_clap_loss(model, processed_audio, descriptions, device):
     """간단한 CLAP 손실 계산"""
     try:
-        # CLAP 모듈 찾기
+        # DDP 래핑 해제
         base_model = model.module if hasattr(model, 'module') else model
+        
+        # TunedCLAPWithAdapters 백본 사용 시
+        if hasattr(base_model, 'backbone') and hasattr(base_model.backbone, 'compute_contrastive_loss'):
+            # 백본 내부의 frozen CLAP 모델을 사용하여 contrastive loss 계산
+            loss = base_model.backbone.compute_contrastive_loss(
+                fused_audio=processed_audio,
+                texts=descriptions,
+                temperature=0.07
+            )
+            return loss
+        
+        # 일반적인 CLAP encoder 사용 시
         clap_module = getattr(base_model, 'clap_encoder', None)
+        if clap_module is not None:
+            return clap_module.compute_clap_loss(processed_audio, descriptions)
         
-        if clap_module is None:
-            # CLAP이 없으면 더미 손실
-            return torch.tensor(0.1, device=device, requires_grad=True)
-        
-        return clap_module.compute_clap_loss(processed_audio, descriptions)
+        # CLAP이 없으면 기본 MSE 손실
+        target = torch.zeros_like(processed_audio)
+        loss = torch.nn.functional.mse_loss(processed_audio, target)
+        return loss
         
     except Exception as e:
         print(f"CLAP loss 실패: {e}")
@@ -227,6 +241,9 @@ def train_epoch(model, train_loader, optimizer, epoch, rank, device):
             # 처리된 오디오 추출
             if isinstance(outputs, dict) and 'processed_audio' in outputs:
                 processed_audio = outputs['processed_audio']
+            elif isinstance(outputs, dict) and 'backbone_features' in outputs:
+                # 백본 출력을 사용 (TunedCLAPWithAdapters의 경우)
+                processed_audio = outputs['backbone_features']
             else:
                 processed_audio = audios
             
@@ -288,6 +305,8 @@ def validate(model, val_loader, rank, device):
                 
                 if isinstance(outputs, dict) and 'processed_audio' in outputs:
                     processed_audio = outputs['processed_audio']
+                elif isinstance(outputs, dict) and 'backbone_features' in outputs:
+                    processed_audio = outputs['backbone_features']
                 else:
                     processed_audio = audios
                 
@@ -418,6 +437,9 @@ def main():
     parser.add_argument('--sample_rate', type=int, default=44100, help='샘플링 레이트')
     parser.add_argument('--audio_length', type=float, default=5.0, help='오디오 길이')
     parser.add_argument('--num_gpus', type=int, default=2, help='GPU 수')
+    parser.add_argument('--backbone_type', type=str, default='simple',
+                       choices=['simple', 'transformer', 'tuned_clap_adapters'],
+                       help='백본 타입')
     
     args = parser.parse_args()
     

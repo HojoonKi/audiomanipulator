@@ -122,6 +122,8 @@ class TextToAudioProcessingPipeline(nn.Module):
             print("🎵 CLAP encoder will be managed by TunedCLAPWithAdapters")
             self.clap_encoder = None
             self.clap_dim = 512  # CLAP embedding dimension (for compatibility)
+            # TunedCLAPWithAdapters는 use_clap=False로 처리하여 중복 CLAP 로딩 방지
+            self.use_clap = False
         else:
             self.clap_encoder = None
             self.clap_dim = 0
@@ -394,8 +396,9 @@ class TextToAudioProcessingPipeline(nn.Module):
         if next(self.parameters()).is_cuda:
             embeddings = embeddings.cuda()
         
-        # Clone to detach from inference mode and enable gradients for downstream processing
-        embeddings = embeddings.clone().detach().requires_grad_(True)
+        # 텍스트 인코더에서 gradient 설정을 처리했지만, 안전하게 확인
+        if not embeddings.requires_grad:
+            embeddings = embeddings.clone().detach().requires_grad_(True)
         
         # CLAP embeddings (if enabled) - 한 번에 배치 처리 (이미 효율적)
         clap_embeddings = None
@@ -409,8 +412,9 @@ class TextToAudioProcessingPipeline(nn.Module):
             if next(self.parameters()).is_cuda:
                 clap_embeddings = clap_embeddings.cuda()
             
-            # Clone to detach from inference mode and enable gradients for downstream processing
-            clap_embeddings = clap_embeddings.clone().detach().requires_grad_(True)
+            # CLAP은 frozen이므로 gradient 필요 시 안전하게 설정
+            if not clap_embeddings.requires_grad:
+                clap_embeddings = clap_embeddings.clone().detach().requires_grad_(True)
         
         return embeddings, clap_embeddings
     
@@ -547,6 +551,326 @@ class TextToAudioProcessingPipeline(nn.Module):
         return self
 
 
+class TunedCLAPPipeline(nn.Module):
+    """
+    TunedCLAPWithAdapters 전용 파이프라인
+    
+    특징:
+    - CLAP encoder를 별도로 로드하지 않음 (TunedCLAPWithAdapters가 내부 관리)
+    - 텍스트 인코더 + TunedCLAPWithAdapters + Decoder 구조
+    - 오디오 데이터와 텍스트 임베딩을 직접 백본에 전달
+    """
+    
+    def __init__(self,
+                 # Text encoder config
+                 text_encoder_type: str = 'sentence-transformer',
+                 text_encoder_config: Dict = None,
+                 
+                 # TunedCLAP config
+                 tuned_clap_config: Dict = None,
+                 
+                 # Decoder config
+                 decoder_config: Dict = None,
+                 
+                 # Audio processing config
+                 sample_rate: int = 44100,
+                 
+                 # Training config
+                 freeze_text_encoder: bool = True,
+                 target_params: int = 500000):
+        super().__init__()
+        
+        print("🏗️ Building TunedCLAPPipeline...")
+        
+        # Store config
+        self.text_encoder_type = text_encoder_type
+        self.sample_rate = sample_rate
+        self.target_params = target_params
+        
+        # Set default configs
+        if tuned_clap_config is None:
+            tuned_clap_config = self._get_default_tuned_clap_config(target_params)
+        if decoder_config is None:
+            decoder_config = self._get_default_decoder_config(target_params)
+        
+        # 1. Text Encoder
+        print(f"📝 Loading text encoder: {text_encoder_type}")
+        self.text_encoder = self._create_text_encoder(text_encoder_type, text_encoder_config or {})
+        if freeze_text_encoder:
+            print("   🔒 Freezing text encoder parameters")
+            self._freeze_text_encoder()
+        
+        # Get text embedding dimension dynamically
+        self.text_dim = self.text_encoder.get_embedding_dim()
+        print(f"   📐 Text embedding dim: {self.text_dim}")
+        
+        # 2. TunedCLAPWithAdapters (CLAP 내장)
+        print("🎵 Building TunedCLAPWithAdapters")
+        tuned_clap_config['llm_feature_dim'] = self.text_dim
+        self.backbone = TunedCLAPWithAdapters(**tuned_clap_config)
+        
+        print(f"   Backbone output dim: {self.backbone.output_dim}")
+        
+        # 3. Decoder
+        print("🎛️ Building decoder")
+        decoder_config['text_embedding_dim'] = self.backbone.output_dim
+        decoder_config['output_format'] = 'differentiable'
+        if 'input_dim' in decoder_config:
+            del decoder_config['input_dim']
+        self.decoder = ParallelPresetDecoder(**decoder_config)
+        
+        # 4. Audio Processor
+        print("🎵 Building audio processor")
+        self.audio_processor = TorchAudioProcessor(sample_rate)
+        
+        print("✅ TunedCLAPPipeline built successfully!")
+        self._print_model_summary()
+    
+    def _get_default_tuned_clap_config(self, target_params: int = 500000) -> Dict:
+        """Get default configuration for TunedCLAPWithAdapters"""
+        # Allocate ~60% of parameter budget to adapters
+        budget = int(target_params * 0.6)
+        
+        # Calculate adapter dimensions based on budget
+        adapter_hidden_dim = min(512, max(128, int(budget / (4 * 256))))  # 4 adapters
+        adapter_hidden_dim = (adapter_hidden_dim // 8) * 8  # Make divisible by 8
+        
+        return {
+            'llm_feature_dim': 768,  # Will be updated with actual text_dim
+            'adapter_hidden_dim': adapter_hidden_dim if adapter_hidden_dim > 0 else 256,
+            'num_adapters': 4,
+            'attention_dim': 256,
+            'num_attention_heads': 8,
+            'dropout': 0.1,
+            'freeze_clap': True
+        }
+    
+    def _get_default_decoder_config(self, target_params: int = 500000) -> Dict:
+        """Get default configuration for decoder"""
+        # Allocate ~40% of parameter budget to decoder
+        budget = int(target_params * 0.4)
+        
+        shared_dim = min(256, max(128, int(budget * 0.3 / 256)))
+        shared_dim = (shared_dim // 8) * 8
+        
+        decoder_dim = min(128, max(64, int(budget * 0.7 / (256 * 5))))
+        decoder_dim = (decoder_dim // 8) * 8
+        
+        return {
+            'shared_hidden_dim': shared_dim if shared_dim > 0 else 128,
+            'decoder_hidden_dim': decoder_dim if decoder_dim > 0 else 64,
+            'num_decoder_layers': 2,
+            'dropout': 0.1
+        }
+    
+    def _create_text_encoder(self, encoder_type: str, config: Dict):
+        """Create text encoder"""
+        from encoder.text_encoder import (
+            SentenceTransformerEncoder, 
+            E5TextEncoder, 
+            CLAPTextEncoder,
+            get_text_encoder
+        )
+        
+        if encoder_type == 'sentence-transformer':
+            model_name = config.get('model_name', 'all-mpnet-base-v2')
+            return SentenceTransformerEncoder(model_name=model_name)
+        elif encoder_type == 'e5-large':
+            model_name = config.get('model_name', 'intfloat/e5-large-v2')
+            device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+            return E5TextEncoder(model_name=model_name, device=device)
+        elif encoder_type == 'clap':
+            model_name = config.get('model_name', '630k-audioset-best')
+            return CLAPTextEncoder(model_name=model_name)
+        else:
+            return get_text_encoder(encoder_type, **config)
+    
+    def _freeze_text_encoder(self):
+        """Freeze text encoder parameters"""
+        if hasattr(self.text_encoder, 'model'):
+            for param in self.text_encoder.model.parameters():
+                param.requires_grad = False
+        else:
+            for param in self.text_encoder.parameters():
+                param.requires_grad = False
+    
+    def _print_model_summary(self):
+        """Print model architecture summary"""
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        
+        # Calculate parameter breakdown
+        backbone_params = sum(p.numel() for p in self.backbone.parameters() if p.requires_grad)
+        decoder_params = sum(p.numel() for p in self.decoder.parameters())
+        
+        print(f"\n📊 TUNED CLAP PIPELINE SUMMARY")
+        print(f"=" * 60)
+        print(f"Text Encoder: {self.text_encoder_type} ({self.text_dim}D)")
+        print(f"Backbone: TunedCLAPWithAdapters -> {self.backbone.output_dim}D")
+        print(f"  └─ Trainable Parameters: {backbone_params:,}")
+        print(f"Decoder: Parallel")
+        print(f"  └─ Parameters: {decoder_params:,}")
+        print(f"Audio Processor: TorchAudio")
+        print(f"")
+        print(f"🎯 Parameter Budget: {self.target_params:,}")
+        print(f"📊 Total Parameters: {total_params:,}")
+        print(f"🚀 Trainable Parameters: {trainable_params:,}")
+        
+        # Parameter efficiency check
+        efficiency = (trainable_params / self.target_params) * 100 if self.target_params > 0 else 0
+        status = "✅" if efficiency <= 100 else "⚠️"
+        print(f"{status} Parameter Efficiency: {efficiency:.1f}% of target")
+        print(f"=" * 60)
+    
+    def to(self, device):
+        """Override to method to ensure all submodules are moved to device"""
+        # Move main model
+        super().to(device)
+        
+        # Move text encoder if it has a model attribute
+        if hasattr(self.text_encoder, 'model') and hasattr(self.text_encoder.model, 'to'):
+            self.text_encoder.model.to(device)
+            print(f"📝 Text encoder moved to {device}")
+        
+        # TunedCLAPWithAdapters will handle its own device movement
+        
+        # Move audio processor if it has learnable parameters
+        if hasattr(self.audio_processor, 'parameters'):
+            self.audio_processor.to(device)
+            print(f"🎛️ Audio processor moved to {device}")
+        
+        return self
+    
+    def encode_text(self, texts: List[str]) -> torch.Tensor:
+        """
+        Encode text inputs to embeddings
+        
+        Args:
+            texts: List of text descriptions
+            
+        Returns:
+            text_embeddings: Text embeddings (batch_size, text_dim)
+        """
+        # 텍스트 입력 안전성 검사
+        if not isinstance(texts, (list, tuple)):
+            texts = [str(texts)]
+        
+        if len(texts) == 0:
+            texts = ["Apply audio effect"]
+        
+        # 각 텍스트 요소 검증 및 정리
+        safe_texts = []
+        for text in texts:
+            if isinstance(text, (tuple, list)):
+                text = str(text[0]) if len(text) > 0 else "Apply audio effect"
+            elif not isinstance(text, str):
+                text = str(text)
+            
+            text = text.strip()
+            if not text:
+                text = "Apply audio effect"
+            
+            safe_texts.append(text)
+        
+        # Regular text embeddings
+        try:
+            if hasattr(self.text_encoder, 'encode_text'):
+                embeddings = self.text_encoder.encode_text(safe_texts)
+            else:
+                embeddings = self.text_encoder(safe_texts)
+        except Exception as e:
+            print(f"❌ 텍스트 인코딩 실패: {e}")
+            print(f"   입력 텍스트: {safe_texts}")
+            raise
+        
+        # Handle different encoder output formats
+        if isinstance(embeddings, tuple):
+            embeddings = embeddings[0]
+        
+        # Convert to tensor if numpy
+        if isinstance(embeddings, np.ndarray):
+            embeddings = torch.from_numpy(embeddings)
+        
+        # Ensure proper device and dtype
+        embeddings = embeddings.float()
+        if next(self.parameters()).is_cuda:
+            embeddings = embeddings.cuda()
+        
+        # 텍스트 인코더에서 이미 gradient 설정을 처리했지만, 안전하게 확인
+        if not embeddings.requires_grad:
+            embeddings = embeddings.clone().detach().requires_grad_(True)
+        
+        return embeddings
+    
+    def forward(self, 
+                texts: List[str],
+                audio: torch.Tensor,
+                use_real_audio: bool = False) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass through the TunedCLAP pipeline
+        
+        Args:
+            texts: List of text descriptions
+            audio: Input audio (batch_size, channels, samples) - REQUIRED
+            use_real_audio: Whether to use real audio processing
+            
+        Returns:
+            outputs: Dictionary containing processed results
+        """
+        batch_size = len(texts)
+        
+        # 1. Text encoding
+        text_embeddings = self.encode_text(texts)
+        
+        # 2. Audio preprocessing for CLAP
+        if audio.dim() == 3 and audio.size(1) > 1:  # (batch, channels, samples)
+            audio_mono = audio.mean(dim=1, keepdim=True)  # Convert to mono
+        else:
+            audio_mono = audio
+        
+        # 3. Backbone processing with audio and text
+        backbone_features = self.backbone(audio_data=audio_mono, llm_hidden=text_embeddings)
+        
+        # 4. Decode to preset parameters
+        preset_params = self.decoder(backbone_features)
+        
+        # 5. Audio processing
+        processed_audio = self.audio_processor(audio, preset_params)
+        
+        outputs = {
+            'text_embeddings': text_embeddings,
+            'backbone_features': backbone_features,
+            'preset_params': preset_params,
+            'processed_audio': processed_audio
+        }
+        
+        return outputs
+    
+    def compute_clap_loss(self, audio: torch.Tensor, texts: List[str], temperature: float = 0.07) -> torch.Tensor:
+        """
+        Compute CLAP contrastive loss using the backbone's CLAP encoder
+        
+        Args:
+            audio: Audio waveform tensor (batch, channels, time)
+            texts: List of text descriptions
+            temperature: Temperature for contrastive loss
+            
+        Returns:
+            loss: Computed CLAP loss
+        """
+        return self.backbone.compute_clap_loss(audio, texts, temperature)
+    
+    def train_mode(self):
+        """Set pipeline to training mode"""
+        self.train()
+        return self
+    
+    def eval_mode(self):
+        """Set pipeline to evaluation mode"""
+        self.eval()
+        return self
+
+
 # ===============================================
 # Usage Examples and Comparisons
 # ===============================================
@@ -611,6 +935,30 @@ def build_model(text_encoder_type: str = 'e5-large',
     )
 
 
+def build_tuned_clap_model(text_encoder_type: str = 'sentence-transformer',
+                          text_encoder_config: Dict = None,
+                          **kwargs) -> TunedCLAPPipeline:
+    """
+    Factory function to build a TunedCLAPPipeline model
+    
+    Args:
+        text_encoder_type: Type of text encoder ('sentence-transformer', 'e5-large', etc.)
+        text_encoder_config: Configuration for text encoder
+        **kwargs: Additional configuration parameters
+        
+    Returns:
+        model: TunedCLAPPipeline model
+    """
+    if text_encoder_config is None:
+        text_encoder_config = {}
+    
+    return TunedCLAPPipeline(
+        text_encoder_type=text_encoder_type,
+        text_encoder_config=text_encoder_config,
+        **kwargs
+    )
+
+
 # Example usage and testing
 if __name__ == "__main__":
     print("🎵 TEXT-TO-AUDIO PROCESSING PIPELINE")
@@ -635,6 +983,62 @@ if __name__ == "__main__":
             }
         }
     ]
+    
+    # Test TunedCLAPPipeline separately
+    print(f"\n🔧 Testing TunedCLAPPipeline:")
+    
+    try:
+        # Build TunedCLAPPipeline
+        tuned_clap_model = TunedCLAPPipeline(
+            text_encoder_type='sentence-transformer',
+            text_encoder_config={'model_name': 'all-mpnet-base-v2'},
+            target_params=300000  # Smaller for testing
+        )
+        
+        # Test forward pass
+        sample_texts = [
+            "Add warm reverb and boost the bass",
+            "Make it sound distorted and aggressive"
+        ]
+        
+        # Create dummy audio - ensure it's required for TunedCLAPPipeline
+        dummy_audio = torch.randn(2, 2, 44100)  # 2 samples, stereo, 1 second
+        
+        # Forward pass
+        outputs = tuned_clap_model(sample_texts, dummy_audio)
+        
+        print(f"✅ TunedCLAPPipeline forward pass successful!")
+        print(f"   Text embeddings: {outputs['text_embeddings'].shape}")
+        print(f"   Backbone features: {outputs['backbone_features'].shape}")
+        print(f"   Processed audio: {outputs['processed_audio'].shape}")
+        
+        # Test CLAP loss
+        try:
+            clap_loss = tuned_clap_model.compute_clap_loss(dummy_audio, sample_texts)
+            print(f"   CLAP loss: {clap_loss.item():.4f}")
+        except Exception as e:
+            print(f"   ⚠️ CLAP loss failed: {e}")
+        
+        # Test parameter extraction
+        preset_params = outputs['preset_params']
+        print(f"   Preset parameters:")
+        for key, value in preset_params.items():
+            if isinstance(value, dict):
+                print(f"     {key}: (nested dict with {len(value)} parameters)")
+                for subkey, subvalue in value.items():
+                    if hasattr(subvalue, 'shape'):
+                        print(f"       {subkey}: {subvalue.shape}")
+                    else:
+                        print(f"       {subkey}: {type(subvalue)}")
+            elif hasattr(value, 'shape'):
+                print(f"     {key}: {value.shape}")
+            else:
+                print(f"     {key}: {type(value)}")
+            
+    except Exception as e:
+        print(f"❌ Error testing TunedCLAPPipeline: {e}")
+        import traceback
+        traceback.print_exc()
     
     for model_config in models_to_test:
         print(f"\n🔧 Testing {model_config['name']}:")
