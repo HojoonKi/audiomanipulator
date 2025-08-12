@@ -1,0 +1,9 @@
+audio_length: 5.0
+batch_size: 8
+data_path: /app
+learning_rate: 0.0001
+num_epochs: 5
+sample_rate: 44100
+seed: 42
+text_encoder_type: sentence-transformer
+use_clap: true

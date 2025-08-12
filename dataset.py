@@ -600,30 +600,38 @@ class PureDescriptionDataset(Dataset):
         }
 
 
-def create_custom_collate_fn(include_guide_preset=True):
-    """커스텀 collate function 생성 - 사전 검증된 preset 사용"""
-    
-    def collate_fn(batch):
-        descriptions = [item['description'] for item in batch]
-        audios = torch.stack([item['audio'] for item in batch])
-        subjects = [item['subject'] for item in batch]
-        audio_types = [item['audio_type'] for item in batch]
-        
-        result = {
-            'description': descriptions,
-            'audio': audios,
-            'subject': subjects,
-            'audio_type': audio_types
-        }
-        
-        if include_guide_preset:
-            # 모든 preset은 이미 dataset에서 검증됨 - 추가 검증 불필요
-            guide_presets = [item.get('guide_preset', {}) for item in batch]
-            result['guide_preset'] = guide_presets
-        
-        return result
-    
-    return collate_fn
+def _custom_collate_base(batch):
+    """공통 collate 로직 (피클 가능)"""
+    descriptions = [item['description'] for item in batch]
+    audios = torch.stack([item['audio'] for item in batch])
+    subjects = [item['subject'] for item in batch]
+    audio_types = [item['audio_type'] for item in batch]
+    return descriptions, audios, subjects, audio_types
+
+
+
+def custom_collate_no_guide(batch):
+    """가이드 프리셋 미포함 collate (DataLoader 멀티프로세싱 호환)"""
+    descriptions, audios, subjects, audio_types = _custom_collate_base(batch)
+    return {
+        'description': descriptions,
+        'audio': audios,
+        'subject': subjects,
+        'audio_type': audio_types,
+    }
+
+
+def custom_collate_with_guide(batch):
+    """가이드 프리셋 포함 collate (사전훈련용)"""
+    descriptions, audios, subjects, audio_types = _custom_collate_base(batch)
+    guide_presets = [item.get('guide_preset', {}) for item in batch]
+    return {
+        'description': descriptions,
+        'audio': audios,
+        'subject': subjects,
+        'audio_type': audio_types,
+        'guide_preset': guide_presets,
+    }
 
 
 def load_descriptions(data_path, use_sampled_descriptions=False, max_descriptions=0):

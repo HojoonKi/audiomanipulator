@@ -235,10 +235,14 @@ class TextToAudioProcessingPipeline(nn.Module):
         print(f"   📐 Detected embedding dim: {self.text_dim}")
         print(f"   Text embedding dim: {self.text_dim}")
         
-        # 2. CLAP Encoder (if enabled)
+        # 2. CLAP Encoder (if enabled) - 기존 인코더가 CLAP이면 재사용
         if use_clap:
-            print("🎵 Loading CLAP text encoder...")
-            self.clap_encoder = CLAPTextEncoder()
+            if isinstance(self.text_encoder, CLAPTextEncoder):
+                print("🔄 Reusing existing CLAP encoder for text-audio alignment")
+                self.clap_encoder = self.text_encoder
+            else:
+                print("🎵 Loading additional CLAP text encoder for audio-text alignment...")
+                self.clap_encoder = CLAPTextEncoder()
             self.clap_dim = 512  # CLAP embedding dimension
             print(f"   CLAP embedding dim: {self.clap_dim}")
         else:
@@ -423,11 +427,17 @@ class TextToAudioProcessingPipeline(nn.Module):
         if backbone_type == 'dual_embedding':
             updated_config['text_dim'] = self.text_dim
             updated_config['clap_dim'] = self.clap_dim
-        elif backbone_type in ['compact_mlp', 'transformer', 'simple']:
-            # simple, compact_mlp, transformer는 모두 결합된 임베딩을 입력으로 받음
+        elif backbone_type in ['compact_mlp', 'transformer']:
+            # compact_mlp, transformer는 결합된 임베딩 차원을 직접 입력으로 사용
             combined_dim = self.text_dim + (self.clap_dim if self.use_clap else 0)
             updated_config['input_dim'] = combined_dim
             print(f"   📐 Combined input dim: text({self.text_dim}) + clap({self.clap_dim if self.use_clap else 0}) = {combined_dim}")
+        elif backbone_type in ['simple']:
+            # simple → model.backbone_model.create_backbone('simple')는 DynamicBackbone을 사용
+            # DynamicBackbone은 text_dim/clap_dim을 받아 즉시 빌드가 가능하도록 한다
+            updated_config['text_dim'] = self.text_dim
+            updated_config['clap_dim'] = self.clap_dim if self.use_clap else 0
+            print(f"   📐 Simple backbone dims: text({self.text_dim}), clap({updated_config['clap_dim']})")
         elif backbone_type in ['residual', 'dynamic', 'dynamic_transformer']:
             # DynamicBackbone 계열은 개별 차원을 전달
             updated_config['text_dim'] = self.text_dim
@@ -443,8 +453,13 @@ class TextToAudioProcessingPipeline(nn.Module):
         elif backbone_type == 'compact_mlp':
             return CompactMLP(**backbone_config)
         else:
+            # DynamicBackbone은 input_dim을 받지 않으므로 제거
+            clean_config = backbone_config.copy()
+            if 'input_dim' in clean_config:
+                del clean_config['input_dim']
+            
             # 기존 create_backbone 함수 사용
-            return create_backbone(backbone_type, **backbone_config)
+            return create_backbone(backbone_type, **clean_config)
     
     def _print_model_summary(self):
         """Print model architecture summary"""
@@ -514,12 +529,41 @@ class TextToAudioProcessingPipeline(nn.Module):
             text_embeddings: Text embeddings (batch_size, text_dim)
             clap_embeddings: CLAP embeddings (batch_size, clap_dim) or None
         """
+        # 텍스트 입력 안전성 검사
+        if not isinstance(texts, (list, tuple)):
+            texts = [str(texts)]
+        
+        # 빈 리스트 처리
+        if len(texts) == 0:
+            texts = ["Apply audio effect"]
+        
+        # 각 텍스트 요소 검증 및 정리
+        safe_texts = []
+        for text in texts:
+            if isinstance(text, (tuple, list)):
+                # 중첩된 리스트/튜플 처리
+                text = str(text[0]) if len(text) > 0 else "Apply audio effect"
+            elif not isinstance(text, str):
+                text = str(text)
+            
+            # 빈 문자열 처리
+            text = text.strip()
+            if not text:
+                text = "Apply audio effect"
+            
+            safe_texts.append(text)
+        
         # Regular text embeddings - 통일된 인터페이스 사용
-        if hasattr(self.text_encoder, 'encode_text'):
-            embeddings = self.text_encoder.encode_text(texts)
-        else:
-            # Backward compatibility
-            embeddings = self.text_encoder(texts)
+        try:
+            if hasattr(self.text_encoder, 'encode_text'):
+                embeddings = self.text_encoder.encode_text(safe_texts)
+            else:
+                # Backward compatibility
+                embeddings = self.text_encoder(safe_texts)
+        except Exception as e:
+            print(f"❌ 텍스트 인코딩 실패: {e}")
+            print(f"   입력 텍스트: {safe_texts}")
+            raise
         
         # Handle different encoder output formats
         if isinstance(embeddings, tuple):
@@ -721,55 +765,6 @@ def usage_examples():
     print("✅ Parameter efficient (~500K)")
     print("✅ TorchAudio processing (differentiable)")
     print("✅ Simplified architecture")
-
-
-if __name__ == "__main__":
-    print("🏗️ Text-to-Audio Processing Pipeline")
-    print("=" * 50)
-    
-    print("\n🎯 SIMPLIFIED ARCHITECTURE:")
-    print("Text → E5-large + CLAP → DualEmbedding → Decoder → TorchAudio")
-    
-    print("\n📊 PIPELINE COMPONENTS:")
-    print("┌─────────────────────┬──────────────────┬─────────────────────┐")
-    print("│ Component           │ Role             │ Differentiable      │")
-    print("├─────────────────────┼──────────────────┼─────────────────────┤")
-    print("│ E5-large + CLAP     │ Text encoding    │ 🔒 Frozen           │")
-    print("│ DualEmbedding       │ Feature fusion   │ ✅ Yes              │") 
-    print("│ ParallelDecoder     │ Preset params    │ ✅ Yes              │")
-    print("│ TorchAudioProcessor │ Audio effects    │ ✅ Yes              │")
-    print("└─────────────────────┴──────────────────┴─────────────────────┘")
-    
-    # Show usage examples
-    usage_examples()
-    
-    print("\n💡 DESIGN DECISION:")
-    print("✅ TorchAudioProcessor 직접 사용 (더 간단하고 안정적)")
-    print("✅ End-to-end gradient flow로 직접 텍스트-오디오 학습") 
-    print("✅ Parameter efficient: ~500K parameters")
-    print("✅ 완전 differentiable audio processing")
-    print("✅ 복잡한 wrapper 클래스 제거")
-    
-    print("\n🚀 USAGE:")
-    print("   동일한 TorchAudioProcessor로 training과 inference 모두 처리")
-    print("   더 이상 모드 전환 필요 없음")
-    
-    # Example instantiation
-    print("\n🧪 EXAMPLE USAGE:")
-    try:
-        pipeline = TextToAudioProcessingPipeline(
-            text_encoder_type='e5-large',
-            use_clap=True,
-            backbone_type='dual_embedding',
-            target_params=500000
-        )
-        print("✅ Simplified pipeline created successfully!")
-        
-    except Exception as e:
-        print(f"⚠️  Pipeline creation failed: {e}")
-        print("   (This is expected if dependencies are missing)")
-    
-    print("\n🎉 Simplified pipeline ready! Clean TorchAudio architecture!")
 
 
 def build_model(text_encoder_type: str = 'e5-large',

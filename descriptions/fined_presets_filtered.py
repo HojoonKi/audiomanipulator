@@ -6345,11 +6345,11 @@ fined_presets = [
     {
         "prompt": "keyboard treated with telephone effect as if in an office cubicle",
         "Equalizer": [
-            {"frequency": 80, "gain": -8, "q": 1.0, "filter_type": "low-shelf"},
+            {"frequency": 80, "gain": -8, "q": 1.0, "filter_type": "highpass"},
             {"frequency": 300, "gain": 3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 800, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2500, "gain": 2, "q": 1.5, "filter_type": "bell"},
-            {"frequency": 8000, "gain": -10, "q": 0.8, "filter_type": "high-shelf"},
+            {"frequency": 8000, "gain": -10, "q": 0.8, "filter_type": "lowpass"},
         ],
         "Reverb": {
             "room_size": 0.8,
@@ -7521,11 +7521,11 @@ fined_presets = [
     {
         "prompt": "An ambient telephone keyboard heard in a mountain peak",
         "Equalizer": [
-            {"frequency": 80, "gain": -10, "q": 1.0, "filter_type": "low-shelf"},
+            {"frequency": 80, "gain": -10, "q": 1.0, "filter_type": "highpass"},
             {"frequency": 300, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 800, "gain": 5, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2500, "gain": 3, "q": 1.5, "filter_type": "bell"},
-            {"frequency": 8000, "gain": -8, "q": 0.8, "filter_type": "high-shelf"},
+            {"frequency": 8000, "gain": -8, "q": 0.8, "filter_type": "lowpass"},
         ],
         "Reverb": {
             "room_size": 0.3,

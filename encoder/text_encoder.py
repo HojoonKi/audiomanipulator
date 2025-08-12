@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 
 import os
+import time
+import io
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import Union, List, Optional
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import warnings
 from abc import ABC, abstractmethod
 
@@ -32,6 +36,46 @@ try:
 except Exception as e:
     CLAP_AVAILABLE = False
     warnings.warn(f"laion_clap not available or failed to import ({e}). Install with: pip install laion_clap")
+
+@contextmanager
+def _suppress_output(quiet: bool):
+    """강력한 출력 억제: Python stdout/stderr + 로깅 + C/C++ FDs(1,2)까지 무음화"""
+    if not quiet:
+        yield
+        return
+    # 백업 로깅 레벨
+    previous_level = logging.root.manager.disable
+    # 파이썬 stdout/stderr 리디렉션
+    buf = io.StringIO()
+    # 파일 디스크립터 백업
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    stdout_fd = os.dup(1)
+    stderr_fd = os.dup(2)
+    try:
+        # 모든 로깅 비활성화
+        logging.disable(logging.CRITICAL)
+        # C/C++ 레벨 출력 무음화
+        os.dup2(devnull_fd, 1)
+        os.dup2(devnull_fd, 2)
+        with redirect_stdout(buf), redirect_stderr(buf):
+            yield
+    finally:
+        # 원복
+        try:
+            os.dup2(stdout_fd, 1)
+            os.dup2(stderr_fd, 2)
+        finally:
+            os.close(stdout_fd)
+            os.close(stderr_fd)
+            os.close(devnull_fd)
+        logging.disable(previous_level)
+
+# DDP 유틸 (있으면 사용)
+try:
+    import torch.distributed as dist
+    DIST_AVAILABLE = True
+except Exception:
+    DIST_AVAILABLE = False
 
 
 class BaseTextEncoder(nn.Module, ABC):
@@ -69,62 +113,236 @@ class CLAPTextEncoder(nn.Module):
     
     CLAP (Contrastive Language-Audio Pre-training) is specifically designed
     for audio-text alignment, making it ideal for our use case.
+    
+    Implements singleton-like behavior to avoid duplicate weight loading.
     """
     
-    def __init__(self, model_name='630k-audioset-best', freeze_audio_branch=False):
+    _instances = {}  # 모델별 인스턴스 캐시
+    
+    def __new__(cls, model_name='630k-audioset-best', freeze_audio_branch=False):
+        # 동일한 모델명으로 이미 생성된 인스턴스가 있으면 재사용
+        if model_name in cls._instances:
+            print(f"🔄 기존 CLAP 인스턴스 재사용: {model_name}")
+            return cls._instances[model_name]
+        
+        # 새 인스턴스 생성
+        instance = super().__new__(cls)
+        cls._instances[model_name] = instance
+        return instance
+    
+    def __init__(self, model_name='630k-audioset-best', freeze_audio_branch=False, quiet: Optional[bool] = None):
+        # 이미 초기화된 인스턴스는 스킵
+        if hasattr(self, '_initialized'):
+            return
+        
         super().__init__()
         
         if not CLAP_AVAILABLE:
             raise ImportError("laion_clap not installed. Run: pip install laion_clap")
         
         self.model_name = model_name
-        self.clap_model = laion_clap.CLAP_Module(enable_fusion=False)
+        # 조용한 모드 설정 (환경변수 CLAP_VERBOSE=0/false 로 제어)
+        if quiet is None:
+            quiet_env = os.getenv('CLAP_VERBOSE', '1')
+            self._quiet = str(quiet_env).lower() in ('0', 'false', 'no')
+        else:
+            self._quiet = bool(quiet)
+
+        def _log(*args, **kwargs):
+            if not self._quiet:
+                print(*args, **kwargs)
+        self._log = _log
+
+        # 모듈 생성 시 출력 억제
+        with _suppress_output(self._quiet):
+            self.clap_model = laion_clap.CLAP_Module(enable_fusion=False)
         
-        # 다운로드/오프라인 제어
+        # 다운로드/오프라인 제어 및 캐시 확인
         skip_download = os.getenv('CLAP_SKIP_DOWNLOAD', '0') in ('1', 'true', 'True')
         ckpt_path = os.getenv('CLAP_CKPT_PATH')
+        ckpt_file = os.getenv('CLAP_CKPT_FILE')  # 명시적 파일 경로(최우선)
         loaded = False
         
-        # 1) 로컬 경로 우선
+        def list_candidate_cache_dirs():
+            custom_cache = os.getenv('CLAP_CACHE_DIR')
+            candidates = [
+                custom_cache if custom_cache else None,
+                os.path.expanduser('~/.cache/laion_clap'),
+                os.path.expanduser('~/.cache/clip'),
+                '/tmp/laion_clap_cache',
+                './clap_cache'
+            ]
+            return [d for d in candidates if d]
+
+        def find_cached_ckpt_in_dir(cache_dir: str):
+            try:
+                if not os.path.isdir(cache_dir):
+                    return None
+                hints = ('clap', '630k', 'audioset', 'music_audioset', 'esc')
+                files = [
+                    f for f in os.listdir(cache_dir)
+                    if f.lower().endswith(('.pt', '.pth', '.bin')) and any(h in f.lower() for h in hints)
+                ]
+                if not files:
+                    return None
+                # 모델명과 유사도가 높은 파일 우선
+                def score(name: str) -> int:
+                    name_l = name.lower()
+                    s = 0
+                    if 'clap' in name_l:
+                        s += 2
+                    if '630k' in name_l or 'audioset' in name_l:
+                        s += 2
+                    if self.model_name.replace('-', '') in name_l.replace('-', ''):
+                        s += 1
+                    return s
+                files.sort(key=score, reverse=True)
+                return os.path.join(cache_dir, files[0])
+            except Exception:
+                return None
+
+        def find_any_cached_ckpt():
+            for d in list_candidate_cache_dirs():
+                path = find_cached_ckpt_in_dir(d)
+                if path:
+                    return path
+            return None
+        
+        # 0) 명시적 파일 경로가 지정된 경우 최우선 사용
+        if ckpt_file and os.path.isfile(ckpt_file):
+            try:
+                with _suppress_output(self._quiet):
+                    self.clap_model.load_ckpt(ckpt_file)
+                loaded = True
+                self._log(f"📦 CLAP 체크포인트 사용(명시 파일): {ckpt_file}")
+            except Exception as e:
+                print(f"⚠️ 명시 파일 로드 실패: {e}")
+
+        # 1) 명시적 로컬 경로 우선 (파일 또는 디렉토리 모두 허용)
         if ckpt_path and os.path.exists(ckpt_path):
             try:
-                self.clap_model.load_ckpt(ckpt_path)
+                target = ckpt_path
+                if os.path.isdir(ckpt_path):
+                    candidate = find_cached_ckpt_in_dir(ckpt_path)
+                    if candidate:
+                        target = candidate
+                with _suppress_output(self._quiet):
+                    self.clap_model.load_ckpt(target)
                 loaded = True
-                print(f"📦 CLAP 로컬 체크포인트 사용: {ckpt_path}")
+                self._log(f"📦 CLAP 로컬 체크포인트 사용: {target}")
             except Exception as e:
                 print(f"⚠️ 로컬 CLAP 체크포인트 로드 실패: {e}")
         
-        # 2) 원격 다운로드 허용 시에만 시도
-        if not loaded and not skip_download:
+        # 2) 캐시된 모델 확인 (여러 경로에서 탐색)
+        if not loaded:
+            cached = find_any_cached_ckpt()
+            if cached:
+                try:
+                    with _suppress_output(self._quiet):
+                        self.clap_model.load_ckpt(cached)
+                    loaded = True
+                    self._log(f"📦 CLAP 캐시된 체크포인트 사용: {cached}")
+                except Exception:
+                    pass
+        
+        # 2.5) 패키지 내 기본 체크포인트 경로 시도 (모든 랭크에서 동일 절대경로)
+        if not loaded:
             try:
-                self.clap_model.load_ckpt()  # 기본 체크포인트 로드
-                loaded = True
+                pkg_dir = os.path.dirname(laion_clap.__file__)
+                built_in = os.path.join(pkg_dir, '630k-audioset-best.pt')
+                if os.path.isfile(built_in):
+                    with _suppress_output(self._quiet):
+                        self.clap_model.load_ckpt(built_in)
+                    loaded = True
+                    self._log(f"📦 CLAP 패키지 내 체크포인트 사용: {built_in}")
             except Exception:
-                for alt in ('630k-best', 'music_audioset_epoch_15_esc_90.14.pt'):
-                    try:
-                        self.clap_model.load_ckpt(alt)
-                        loaded = True
-                        break
-                    except Exception:
-                        continue
+                pass
+        
+        # 3) 원격 다운로드 허용 시에만 시도 (DDP 환경이면 rank 0 전용)
+        if not loaded and not skip_download:
+            is_ddp = DIST_AVAILABLE and dist.is_available() and dist.is_initialized()
+            is_rank0 = False
+            if is_ddp:
+                try:
+                    is_rank0 = (dist.get_rank() == 0)
+                except Exception:
+                    is_rank0 = False
+
+            if not is_ddp or is_rank0:
+                self._log("🌐 CLAP weight 다운로드 시도 중...")
+                try:
+                    with _suppress_output(self._quiet):
+                        self.clap_model.load_ckpt()
+                    loaded = True
+                    self._log("✅ CLAP weight 다운로드 완료")
+                except Exception as e:
+                    print(f"⚠️ 기본 CLAP 체크포인트 로드 실패: {e}")
+                    for alt in ('630k-best', 'music_audioset_epoch_15_esc_90.14.pt'):
+                        try:
+                            self._log(f"🔄 대안 체크포인트 시도: {alt}")
+                            with _suppress_output(self._quiet):
+                                self.clap_model.load_ckpt(alt)
+                            loaded = True
+                            self._log(f"✅ 대안 CLAP weight 로드 성공: {alt}")
+                            break
+                        except Exception as e2:
+                            print(f"⚠️ {alt} 로드 실패: {e2}")
+                            continue
+                # 다운로드 후 캐시 경로 안내
+                if loaded:
+                    cached = find_any_cached_ckpt()
+                    if cached:
+                        self._log(f"📁 CLAP 가중치 캐시 경로 탐지: {cached}")
+                        self._log(f"   다음 실행부터 캐시 재사용을 강제하려면: export CLAP_CKPT_FILE={cached}")
+            else:
+                self._log("⏳ Rank≠0: CLAP 가중치 캐시 대기 중...")
+                wait_secs = int(os.getenv('CLAP_DDP_WAIT_SECS', '300'))
+                start = time.time()
+                while time.time() - start < wait_secs:
+                    cached = find_any_cached_ckpt()
+                    if cached:
+                        try:
+                            with _suppress_output(self._quiet):
+                                self.clap_model.load_ckpt(cached)
+                            loaded = True
+                            self._log(f"📦 Rank≠0: 캐시 체크포인트 사용: {cached}")
+                            break
+                        except Exception:
+                            pass
+                    time.sleep(1.0)
+                try:
+                    dist.barrier()
+                except Exception:
+                    pass
         
         if not loaded:
-            print("⚠️ CLAP 체크포인트 로드 생략(로컬 없음 또는 다운로드 비활성). 랜덤 초기화로 진행")
+            print("⚠️ CLAP 체크포인트 로드 생략 - 로컬 캐시 없음 또는 다운로드 비활성화")
+            print("   환경변수 설정 예시:")
+            print("   export CLAP_CKPT_PATH=/path/to/your/clap_model.pt")
+            print("   export CLAP_SKIP_DOWNLOAD=0  # 다운로드 허용")
         
         # CLAP 모델 구조 확인 및 gradient 설정
-        print(f"🔍 CLAP 모델 구조 확인:")
-        for name, module in self.clap_model.named_children():
-            print(f"   - {name}: {type(module)}")
+        if not self._quiet:
+            print(f"🔍 CLAP 모델 구조 확인:")
+            for name, module in self.clap_model.named_children():
+                print(f"   - {name}: {type(module)}")
         
         # CLAP 모델은 frozen하되 gradient computation은 허용
         for param in self.clap_model.parameters():
             param.requires_grad = False
-        print("🔒 CLAP 모델 frozen (embedding 추출용, gradient flow는 허용)")
+        if not self._quiet:
+            print("🔒 CLAP 모델 frozen (embedding 추출용, gradient flow는 허용)")
         
         # 학습 가능한 파라미터 수 출력
         trainable_params = sum(p.numel() for p in self.clap_model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in self.clap_model.parameters())
-        print(f"📊 CLAP 파라미터: {total_params:,} total, {trainable_params:,} trainable")
+        if not self._quiet:
+            print(f"📊 CLAP 파라미터: {total_params:,} total, {trainable_params:,} trainable")
+        
+        # 초기화 완료 표시
+        self._initialized = True
+        if not self._quiet:
+            print(f"✅ CLAP 인코더 초기화 완료: {model_name}")
     
     def get_text_embedding(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
         """
@@ -301,7 +519,14 @@ class SentenceTransformerEncoder(BaseTextEncoder):
         cache_folder = os.getenv('SENTENCE_TRANSFORMERS_HOME')
         if cache_folder:
             os.makedirs(cache_folder, exist_ok=True)
-        self.model = SentenceTransformer(model_name, use_auth_token=hf_token, cache_folder=cache_folder)
+        try:
+            if hf_token:
+                self.model = SentenceTransformer(model_name, use_auth_token=hf_token, cache_folder=cache_folder)
+            else:
+                self.model = SentenceTransformer(model_name, cache_folder=cache_folder)
+        except Exception as e:
+            print("⚠️ SentenceTransformer 로드 실패, 토큰 없이 재시도합니다.")
+            self.model = SentenceTransformer(model_name, cache_folder=cache_folder)
         
         # Freeze parameters
         for param in self.model.parameters():
@@ -312,8 +537,30 @@ class SentenceTransformerEncoder(BaseTextEncoder):
         if isinstance(text_prompts, str):
             text_prompts = [text_prompts]
         
-        with torch.no_grad():
-            embeddings = self.model.encode(text_prompts, convert_to_tensor=True, show_progress_bar=False)
+        # 안전성 검사 및 정리
+        safe_prompts = []
+        for prompt in text_prompts:
+            if isinstance(prompt, (tuple, list)):
+                # 튜플/리스트인 경우 첫 번째 요소 사용
+                prompt = str(prompt[0]) if len(prompt) > 0 else "Apply audio effect"
+            elif not isinstance(prompt, str):
+                prompt = str(prompt)
+            
+            # 빈 문자열 처리
+            prompt = prompt.strip()
+            if not prompt:
+                prompt = "Apply audio effect"
+            
+            safe_prompts.append(prompt)
+        
+        try:
+            with torch.no_grad():
+                embeddings = self.model.encode(safe_prompts, convert_to_tensor=True, show_progress_bar=False)
+        except Exception as e:
+            print(f"❌ sentence-transformers 인코딩 실패: {e}")
+            print(f"   입력 프롬프트: {safe_prompts}")
+            print(f"   프롬프트 타입: {[type(p) for p in safe_prompts]}")
+            raise
         
         return embeddings.float()
     
@@ -342,8 +589,17 @@ class E5TextEncoder(BaseTextEncoder):
         local_only = os.getenv('HF_LOCAL_ONLY', '0') in ('1', 'true', 'True') or os.getenv('TRANSFORMERS_OFFLINE', '0') in ('1', 'true', 'True')
         if local_only:
             os.environ['TRANSFORMERS_OFFLINE'] = '1'
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token, local_files_only=local_only)
-        self.model = AutoModel.from_pretrained(model_name, use_auth_token=hf_token, local_files_only=local_only).to(device)
+        try:
+            if hf_token:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=hf_token, local_files_only=local_only)
+                self.model = AutoModel.from_pretrained(model_name, use_auth_token=hf_token, local_files_only=local_only).to(device)
+            else:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=local_only)
+                self.model = AutoModel.from_pretrained(model_name, local_files_only=local_only).to(device)
+        except Exception:
+            print("⚠️ E5 토크나이저/모델 로드 실패, 토큰 없이 재시도합니다.")
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=local_only)
+            self.model = AutoModel.from_pretrained(model_name, local_files_only=local_only).to(device)
         
         # 메모리 최적화: 모델 파라미터 동결
         for param in self.model.parameters():

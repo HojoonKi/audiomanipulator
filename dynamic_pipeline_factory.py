@@ -41,25 +41,14 @@ class DynamicPipelineFactory:
     
     @classmethod
     def create_pipeline(cls, 
-                       encoder_preset: str = 'sentence-transformer-large',
-                       custom_encoder_config: Optional[Dict] = None,
-                       backbone_type: str = 'simple',
-                       backbone_config: Optional[Dict] = None,
-                       use_clap: bool = True,
-                       **pipeline_kwargs) -> TextToAudioProcessingPipeline:
+                    encoder_preset: str = 'sentence-transformer-large',
+                    custom_encoder_config: Optional[Dict] = None,
+                    backbone_type: str = 'simple',
+                    backbone_config: Optional[Dict] = None,
+                    use_clap: bool = True,
+                    **pipeline_kwargs) -> TextToAudioProcessingPipeline:
         """
-        동적으로 파이프라인 생성 - 백본도 동적으로 지원
-        
-        Args:
-            encoder_preset: 사전 정의된 인코더 설정 이름
-            custom_encoder_config: 커스텀 인코더 설정 (preset 오버라이드)
-            backbone_type: 백본 타입 ('simple', 'dynamic', 'transformer', etc.)
-            backbone_config: 백본 모델 설정
-            use_clap: CLAP 인코더 사용 여부
-            **pipeline_kwargs: 추가 파이프라인 설정
-            
-        Returns:
-            TextToAudioProcessingPipeline 인스턴스
+        결정론적 파이프라인 생성 - 모든 워커에서 동일한 구조 보장
         """
         
         # 인코더 설정 결정
@@ -74,35 +63,46 @@ class DynamicPipelineFactory:
             print(f"🎯 Using preset '{encoder_preset}': {preset['description']}")
         else:
             raise ValueError(f"Unknown encoder preset: {encoder_preset}. "
-                           f"Available: {list(cls.ENCODER_PRESETS.keys())}")
+                        f"Available: {list(cls.ENCODER_PRESETS.keys())}")
         
-        # 백본 설정 준비 - 동적 차원 지원
+        # 백본 설정 준비
         if backbone_config is None:
             backbone_config = {}
         
-        # 텍스트 인코더 차원 자동 설정 (실제 출력 차원)
+        # ⭐ 핵심 수정: 고정된 차원 사용 (동적 감지 금지)
         text_dim_map = {
             'sentence-transformer-mini': 384,
             'sentence-transformer-large': 768,
-            'e5-large': 1280,  # 실제 e5-large-v2는 1280차원
+            'e5-large': 1280,
             'clap': 512
         }
         
-        # 백본에 동적 차원 정보 전달 (추정값, 실제는 런타임에 결정됨)
+        # 텍스트 차원 강제 설정 (None 금지)
         if encoder_preset in text_dim_map:
             backbone_config['text_dim'] = text_dim_map[encoder_preset]
         else:
-            # 알 수 없는 인코더인 경우 None으로 설정하여 동적 감지 활성화
-            backbone_config['text_dim'] = None
+            # 알 수 없는 인코더도 기본값 사용 (동적 감지 금지)
+            backbone_config['text_dim'] = 768  # 기본값으로 고정
+            print(f"⚠️ Unknown encoder preset '{encoder_preset}', using default text_dim=768")
         
+        # ⭐ 핵심 수정: CLAP을 항상 설정 (조건부 제거)
         if use_clap:
             backbone_config['clap_dim'] = 512
+        else:
+            # CLAP을 사용하지 않아도 차원 설정 (구조 일관성 보장)
+            backbone_config['clap_dim'] = 0  # 또는 512로 설정하고 사용 안 함
+        
+        # ⭐ 추가: 모든 설정을 명시적으로 고정
+        backbone_config.setdefault('hidden_dim', 1024)
+        backbone_config.setdefault('num_layers', 4)
+        backbone_config.setdefault('dropout', 0.1)
         
         # 파이프라인 생성
-        print(f"🏗️ Building dynamic pipeline...")
+        print(f"🏗️ Building deterministic pipeline...")
         print(f"   📝 Text encoder: {encoder_type}")
+        print(f"   📐 Text dim: {backbone_config['text_dim']}")
+        print(f"   🎵 CLAP dim: {backbone_config['clap_dim']}")
         print(f"   🏗️ Backbone: {backbone_type}")
-        print(f"   🎵 CLAP enabled: {use_clap}")
         
         pipeline = TextToAudioProcessingPipeline(
             text_encoder_type=encoder_type,

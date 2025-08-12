@@ -1,5 +1,8 @@
 FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
+# (Optional) HF token as build-arg (not persisted in image)
+ARG HUGGINGFACE_HUB_TOKEN
+
 ARG DEBIAN_FRONTEND=noninteractive
 
 # 기본 유틸 설치 (wget, ca-certificates 등)
