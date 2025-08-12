@@ -25,7 +25,7 @@ import warnings
 
 # Import our components
 from encoder.text_encoder import get_text_encoder, CLAPTextEncoder
-from model.backbone_model import create_backbone
+from model.backbone_model import create_backbone, TunedCLAPWithAdapters
 from decoder.decoder import ParallelPresetDecoder
 from audio_tools.torchaudio_processor import TorchAudioProcessor
 from utils.parameter_mapper import ParameterMapper
@@ -39,135 +39,7 @@ except ImportError:
     print("⚠️ CLAP not available. Install with: pip install laion-clap")
 from utils.parameter_mapper import ParameterMapper
 
-class DualEmbeddingBackbone(nn.Module):
-    """
-    Lightweight MLP backbone that processes both text encoder and CLAP embeddings
-    Designed for ~500K parameters total
-    """
-    
-    def __init__(self, 
-                 text_dim: int = 1024,  # E5-large dimension
-                 clap_dim: int = 512,   # CLAP dimension
-                 hidden_dim: int = 256,  # Reduced for parameter efficiency
-                 num_layers: int = 3,    # Reduced layers
-                 dropout: float = 0.1):
-        super().__init__()
-        
-        self.text_dim = text_dim
-        self.clap_dim = clap_dim
-        self.hidden_dim = hidden_dim
-        
-        # Input projections to common dimension
-        self.text_proj = nn.Linear(text_dim, hidden_dim)
-        self.clap_proj = nn.Linear(clap_dim, hidden_dim)
-        
-        # Fusion layer to combine both embeddings
-        self.fusion = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout)
-        )
-        
-        # MLP layers
-        self.layers = nn.ModuleList()
-        for i in range(num_layers):
-            self.layers.append(nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout)
-            ))
-        
-        # Residual connections for better gradient flow
-        self.use_residual = True
-        
-        self.output_dim = hidden_dim
-        
-        # Calculate parameter count
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"✅ DualEmbeddingBackbone initialized:")
-        print(f"   Text dim: {text_dim} -> {hidden_dim}")
-        print(f"   CLAP dim: {clap_dim} -> {hidden_dim}")
-        print(f"   Hidden layers: {num_layers}")
-        print(f"   Total parameters: {total_params:,}")
-    
-    def forward(self, text_emb: torch.Tensor, clap_emb: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass with dual embeddings
-        
-        Args:
-            text_emb: Text encoder embeddings (batch_size, text_dim)
-            clap_emb: CLAP embeddings (batch_size, clap_dim)
-            
-        Returns:
-            features: Fused features (batch_size, hidden_dim)
-        """
-        # Project to common dimension
-        text_feat = self.text_proj(text_emb)  # (batch_size, hidden_dim)
-        clap_feat = self.clap_proj(clap_emb)  # (batch_size, hidden_dim)
-        
-        # Concatenate and fuse
-        combined = torch.cat([text_feat, clap_feat], dim=-1)  # (batch_size, hidden_dim * 2)
-        x = self.fusion(combined)  # (batch_size, hidden_dim)
-        
-        # Pass through MLP layers with residual connections
-        for layer in self.layers:
-            if self.use_residual:
-                x = x + layer(x)
-            else:
-                x = layer(x)
-        
-        return x
-
-
-class CompactMLP(nn.Module):
-    """
-    Ultra-compact MLP backbone for parameter efficiency
-    Target: ~200K parameters for the backbone alone
-    """
-    
-    def __init__(self,
-                 input_dim: int = 1024,
-                 hidden_dims: List[int] = [512, 256, 128],
-                 dropout: float = 0.1,
-                 use_layer_norm: bool = True):
-        super().__init__()
-        
-        self.input_dim = input_dim
-        self.hidden_dims = hidden_dims
-        
-        layers = []
-        prev_dim = input_dim
-        
-        for i, hidden_dim in enumerate(hidden_dims):
-            # Linear layer
-            layers.append(nn.Linear(prev_dim, hidden_dim))
-            
-            # Normalization
-            if use_layer_norm:
-                layers.append(nn.LayerNorm(hidden_dim))
-            
-            # Activation
-            layers.append(nn.ReLU())
-            
-            # Dropout (except last layer)
-            if i < len(hidden_dims) - 1:
-                layers.append(nn.Dropout(dropout))
-            
-            prev_dim = hidden_dim
-        
-        self.backbone = nn.Sequential(*layers)
-        self.output_dim = prev_dim
-        
-        # Calculate parameter count
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"✅ CompactMLP initialized:")
-        print(f"   Architecture: {input_dim} -> {' -> '.join(map(str, hidden_dims))}")
-        print(f"   Parameters: {total_params:,}")
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+# Removed complex backbone classes - now using simplified versions from backbone_model.py
 
 
 class TextToAudioProcessingPipeline(nn.Module):
@@ -191,8 +63,8 @@ class TextToAudioProcessingPipeline(nn.Module):
                  text_encoder_config: Dict = None,  # 추가: 인코더별 세부 설정
                  use_clap: bool = True,  # New: Use CLAP embeddings
                  
-                 # Backbone config - 동적 dimension 처리
-                 backbone_type: str = 'dual_embedding',  # New: dual_embedding, compact_mlp, transformer
+                 # Backbone config - 단순화된 백본 타입
+                 backbone_type: str = 'simple',  # simple, transformer, tuned_clap_adapters
                  backbone_config: Dict = None,
                  
                  # Decoder config
@@ -236,7 +108,8 @@ class TextToAudioProcessingPipeline(nn.Module):
         print(f"   Text embedding dim: {self.text_dim}")
         
         # 2. CLAP Encoder (if enabled) - 기존 인코더가 CLAP이면 재사용
-        if use_clap:
+        # TunedCLAPWithAdapters는 내부에서 CLAP을 관리하므로 별도 CLAP 로딩 불필요
+        if use_clap and backbone_type != 'tuned_clap_adapters':
             if isinstance(self.text_encoder, CLAPTextEncoder):
                 print("🔄 Reusing existing CLAP encoder for text-audio alignment")
                 self.clap_encoder = self.text_encoder
@@ -245,6 +118,10 @@ class TextToAudioProcessingPipeline(nn.Module):
                 self.clap_encoder = CLAPTextEncoder()
             self.clap_dim = 512  # CLAP embedding dimension
             print(f"   CLAP embedding dim: {self.clap_dim}")
+        elif backbone_type == 'tuned_clap_adapters':
+            print("🎵 CLAP encoder will be managed by TunedCLAPWithAdapters")
+            self.clap_encoder = None
+            self.clap_dim = 512  # CLAP embedding dimension (for compatibility)
         else:
             self.clap_encoder = None
             self.clap_dim = 0
@@ -277,73 +154,29 @@ class TextToAudioProcessingPipeline(nn.Module):
     def _get_default_backbone_config(self, backbone_type: str, target_params: int = 500000) -> Dict:
         """Get default configuration for backbone with parameter budget"""
         
-        # Calculate optimal hidden dimensions based on parameter budget
-        if backbone_type == 'dual_embedding':
-            # For dual embedding: text_proj + clap_proj + fusion + MLP layers
-            # Rough calculation: ~80% of params for MLP layers
-            mlp_params = int(target_params * 0.6)  # Leave room for decoder
-            hidden_dim = int(np.sqrt(mlp_params / 6))  # Rough estimate for 3 layers
-            hidden_dim = min(256, max(128, hidden_dim))  # Clamp to reasonable range
-            
+        if backbone_type == 'tuned_clap_adapters':
+            # For TunedCLAPWithAdapters: adapter-based fusion with CLAP
             return {
-                'hidden_dim': hidden_dim,
-                'num_layers': 3,
-                'dropout': 0.1
-            }
-
-        elif backbone_type == 'compact_mlp':
-            # For compact MLP: calculate hidden dims based on parameter budget
-            budget = int(target_params * 0.6)  # Leave room for decoder
-            # Simple heuristic for 3-layer MLP
-            h1 = min(512, int(budget * 0.5 / 1024))  # First layer: input_dim * h1
-            h2 = min(256, int(h1 * 0.6))
-            h3 = min(128, int(h2 * 0.8))
-            
-            return {
-                'hidden_dims': [h1, h2, h3],
+                'llm_feature_dim': 1024,  # Will be updated with actual text_dim
+                'adapter_hidden_dim': 256,
+                'num_adapters': 4,
                 'dropout': 0.1,
-                'use_layer_norm': True
+                'freeze_clap': True
             }
         
-        # Original configs (reduced for parameter efficiency)
+        # Simplified configs for basic backbones
         configs = {
             'simple': {
-                'hidden_dims': [256, 128],  # Reduced from [512, 256]
+                'hidden_dims': [512, 256, 128],
                 'dropout_rate': 0.1,
                 'activation': 'gelu'
             },
             'transformer': {
-                'hidden_dim': 256,  # Reduced from 512
-                'num_layers': 4,    # Reduced from 6
+                'hidden_dim': 512,
+                'num_layers': 6,
                 'num_heads': 8,
-                'dim_head': 32,     # Reduced from 64
+                'dim_head': 64,
                 'dropout': 0.1
-            },
-            'hierarchical': {
-                'hidden_dims': [128, 256, 192],  # Reduced
-                'num_layers_per_stage': [2, 2, 2],
-                'num_heads': 4,  # Reduced from 8
-                'dropout': 0.1
-            },
-            'crossmodal': {
-                'text_dim': 1024,  # Will be updated
-                'hidden_dim': 256,  # Reduced from 512
-                'num_layers': 3,    # Reduced from 4
-                'num_heads': 4,     # Reduced from 8
-                'dropout': 0.1
-            },
-            'perceiver': {
-                'latent_dim': 256,  # Reduced from 512
-                'num_latents': 32,  # Reduced from 64
-                'num_cross_layers': 2,
-                'num_self_layers': 4,  # Reduced from 6
-                'num_heads': 4,        # Reduced from 8
-                'dropout': 0.1
-            },
-            'residual': {
-                'hidden_dim': 256,  # Reduced from 512
-                'num_blocks': 3,    # Reduced from 4
-                'dropout_rate': 0.1
             }
         }
         return configs.get(backbone_type, configs['simple'])
@@ -424,42 +257,25 @@ class TextToAudioProcessingPipeline(nn.Module):
         """백본 설정에 실제 dimension 업데이트"""
         updated_config = backbone_config.copy()
         
-        if backbone_type == 'dual_embedding':
-            updated_config['text_dim'] = self.text_dim
-            updated_config['clap_dim'] = self.clap_dim
-        elif backbone_type in ['compact_mlp', 'transformer']:
-            # compact_mlp, transformer는 결합된 임베딩 차원을 직접 입력으로 사용
+        if backbone_type == 'tuned_clap_adapters':
+            # TunedCLAPWithAdapters는 LLM feature dimension을 text embedding dimension으로 설정
+            updated_config['llm_feature_dim'] = self.text_dim
+            print(f"   📐 TunedCLAP adapters dims: llm_feature({self.text_dim})")
+        elif backbone_type in ['simple', 'transformer']:
+            # simple, transformer는 결합된 임베딩 차원을 직접 입력으로 사용
             combined_dim = self.text_dim + (self.clap_dim if self.use_clap else 0)
             updated_config['input_dim'] = combined_dim
             print(f"   📐 Combined input dim: text({self.text_dim}) + clap({self.clap_dim if self.use_clap else 0}) = {combined_dim}")
-        elif backbone_type in ['simple']:
-            # simple → model.backbone_model.create_backbone('simple')는 DynamicBackbone을 사용
-            # DynamicBackbone은 text_dim/clap_dim을 받아 즉시 빌드가 가능하도록 한다
-            updated_config['text_dim'] = self.text_dim
-            updated_config['clap_dim'] = self.clap_dim if self.use_clap else 0
-            print(f"   📐 Simple backbone dims: text({self.text_dim}), clap({updated_config['clap_dim']})")
-        elif backbone_type in ['residual', 'dynamic', 'dynamic_transformer']:
-            # DynamicBackbone 계열은 개별 차원을 전달
-            updated_config['text_dim'] = self.text_dim
-            updated_config['clap_dim'] = self.clap_dim if self.use_clap else 0
-            print(f"   📐 Dynamic backbone dims: text({self.text_dim}), clap({self.clap_dim if self.use_clap else 0})")
         
         return updated_config
     
     def _create_backbone(self, backbone_type: str, backbone_config: Dict):
         """동적으로 백본 생성"""
-        if backbone_type == 'dual_embedding':
-            return DualEmbeddingBackbone(**backbone_config)
-        elif backbone_type == 'compact_mlp':
-            return CompactMLP(**backbone_config)
+        if backbone_type == 'tuned_clap_adapters':
+            return TunedCLAPWithAdapters(**backbone_config)
         else:
-            # DynamicBackbone은 input_dim을 받지 않으므로 제거
-            clean_config = backbone_config.copy()
-            if 'input_dim' in clean_config:
-                del clean_config['input_dim']
-            
-            # 기존 create_backbone 함수 사용
-            return create_backbone(backbone_type, **clean_config)
+            # 단순화된 create_backbone 함수 사용
+            return create_backbone(backbone_type, **backbone_config)
     
     def _print_model_summary(self):
         """Print model architecture summary"""
@@ -624,22 +440,26 @@ class TextToAudioProcessingPipeline(nn.Module):
         text_embeddings, clap_embeddings = self.encode_text(texts)
         
         # 2. Backbone processing
-        if self.backbone_type == 'dual_embedding' and self.use_clap:
-            # Dual embedding backbone
-            backbone_features = self.backbone(text_embeddings, clap_embeddings)
-        elif hasattr(self.backbone, 'fusion_type') and self.use_clap and clap_embeddings is not None:
-            # DynamicBackbone with cross-attention or other fusion
-            backbone_features = self.backbone(text_emb=text_embeddings, clap_emb=clap_embeddings)
+        if self.backbone_type == 'tuned_clap_adapters':
+            # TunedCLAPWithAdapters: 오디오 데이터와 LLM hidden states 필요
+            if audio is not None:
+                # 오디오를 모노로 변환 (CLAP은 모노 오디오 처리)
+                if audio.dim() == 3 and audio.size(1) > 1:  # (batch, channels, samples)
+                    audio_mono = audio.mean(dim=1, keepdim=True)  # 스테레오 -> 모노
+                else:
+                    audio_mono = audio
+                backbone_features = self.backbone(audio_data=audio_mono, llm_hidden=text_embeddings)
+            else:
+                # 오디오가 없으면 더미 오디오 생성 (훈련 시에는 실제 오디오가 제공되어야 함)
+                dummy_audio = torch.zeros(batch_size, 1, 16000, device=text_embeddings.device)
+                backbone_features = self.backbone(audio_data=dummy_audio, llm_hidden=text_embeddings)
         elif self.use_clap and clap_embeddings is not None:
-            # Legacy: Concatenate embeddings for other backbone types
+            # Concatenate embeddings for simple/transformer backbones
             combined_embeddings = torch.cat([text_embeddings, clap_embeddings], dim=-1)
             backbone_features = self.backbone(combined_embeddings)
         else:
-            # Single embedding - check if it's DynamicBackbone
-            if hasattr(self.backbone, 'fusion_type'):
-                backbone_features = self.backbone(text_emb=text_embeddings, clap_emb=None)
-            else:
-                backbone_features = self.backbone(text_embeddings)
+            # Single text embedding
+            backbone_features = self.backbone(text_embeddings)
         
         # 3. Decode to preset parameters
         preset_params = self.decoder(backbone_features)
@@ -801,7 +621,7 @@ if __name__ == "__main__":
         {
             'name': 'Simple Model',
             'config': {
-                'text_encoder_type': 'e5-large',
+                'text_encoder_type': 'sentence-transformer',
                 'backbone_type': 'simple',
                 'decoder_type': 'parallel'
             }
@@ -809,7 +629,7 @@ if __name__ == "__main__":
         {
             'name': 'Transformer Model',
             'config': {
-                'text_encoder_type': 'e5-large',
+                'text_encoder_type': 'sentence-transformer',
                 'backbone_type': 'transformer',
                 'decoder_type': 'parallel'
             }

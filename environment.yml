@@ -27,4 +27,3 @@ dependencies:
       - crepe>=0.0.12
       - wandb>=0.15.0
       - laion-clap
-      - ray[train]
