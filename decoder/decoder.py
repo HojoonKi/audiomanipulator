@@ -20,8 +20,96 @@ from typing import Dict, List, Optional, Tuple, Union
 # Parallel Decoder Architecture (Recommended)
 # ===============================================
 
+class EQBandDecoder(nn.Module):
+    """Individual decoder for a single EQ band"""
+    
+    def __init__(self, 
+                 input_dim: int,
+                 hidden_dim: int = 128,  # 더 작은 hidden_dim (밴드별로 특화)
+                 num_layers: int = 2,    # 더 간단한 구조
+                 dropout: float = 0.1,
+                 band_id: int = 1):
+        super().__init__()
+        
+        self.band_id = band_id
+        self.input_dim = input_dim
+        
+        # 밴드별 특화된 소형 decoder
+        layers = []
+        current_dim = input_dim
+        
+        for i in range(num_layers):
+            layers.extend([
+                nn.Linear(current_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.SiLU(),  # SiLU activation for smoother gradients
+                nn.Dropout(dropout)
+            ])
+            current_dim = hidden_dim
+        
+        self.decoder_layers = nn.Sequential(*layers)
+        
+        # 밴드별 파라미터 헤드 (4개: freq, gain, q, filter_type)
+        self.freq_head = nn.Linear(hidden_dim, 1)
+        self.gain_head = nn.Linear(hidden_dim, 1)
+        self.q_head = nn.Linear(hidden_dim, 1)
+        self.filter_type_head = nn.Linear(hidden_dim, 5)  # 5 filter types
+        
+    def forward(self, text_embedding: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Convert text embedding to single EQ band parameters
+        
+        Args:
+            text_embedding: (batch_size, embedding_dim)
+            
+        Returns:
+            band_parameters: Dict of this band's parameters
+        """
+        # Pass through decoder layers
+        hidden = self.decoder_layers(text_embedding)
+        
+        # Generate band-specific parameters
+        freq_raw = self.freq_head(hidden)
+        gain_raw = self.gain_head(hidden)
+        q_raw = self.q_head(hidden)
+        filter_type_raw = self.filter_type_head(hidden)
+        
+        # Apply parameter-specific constraints
+        freq = self._apply_freq_constraints(freq_raw)
+        gain = self._apply_gain_constraints(gain_raw)
+        q = self._apply_q_constraints(q_raw)
+        filter_type = torch.softmax(filter_type_raw, dim=-1)
+        
+        return {
+            f'band_{self.band_id}_freq': freq,
+            f'band_{self.band_id}_gain': gain,
+            f'band_{self.band_id}_q': q,
+            f'band_{self.band_id}_filter_type': filter_type
+        }
+    
+    def _apply_freq_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
+        """주파수 제약 적용 - 밴드별 특화 없이 전체 범위에서 자유롭게"""
+        sigmoid_val = torch.sigmoid(raw_value)
+        log_min = torch.log(torch.tensor(20.0))
+        log_max = torch.log(torch.tensor(20000.0))
+        log_freq = log_min + sigmoid_val * (log_max - log_min)
+        return torch.exp(log_freq)
+    
+    def _apply_gain_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
+        """게인 제약: -30dB to +30dB"""
+        return torch.tanh(raw_value) * 30
+    
+    def _apply_q_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
+        """Q factor 제약: 0.1 to 30.0 (로그 스케일)"""
+        sigmoid_val = torch.sigmoid(raw_value)
+        log_min = torch.log(torch.tensor(0.1))
+        log_max = torch.log(torch.tensor(30.0))
+        log_q = log_min + sigmoid_val * (log_max - log_min)
+        return torch.exp(log_q)
+
+
 class EffectDecoderBlock(nn.Module):
-    """Individual decoder block for each audio effect"""
+    """Individual decoder block for each audio effect (non-EQ effects)"""
     
     def __init__(self, 
                  input_dim: int,
@@ -49,23 +137,15 @@ class EffectDecoderBlock(nn.Module):
         
         self.decoder_layers = nn.Sequential(*layers)
         
-        # Effect-specific parameter heads
+        # Effect-specific parameter heads (EQ 제외)
         self.parameter_heads = self._build_parameter_heads(hidden_dim)
         
     def _build_parameter_heads(self, hidden_dim: int) -> nn.ModuleDict:
-        """Build parameter heads specific to each effect"""
+        """Build parameter heads specific to each effect (EQ 제외 - 별도 EQBandDecoder 사용)"""
         
         heads = nn.ModuleDict()
         
-        if self.effect_name == "equalizer":
-            # EQ: 5 bands with frequency, gain, Q, filter_type for each band
-            for band in range(1, 6):  # 5 bands: band_1 to band_5
-                heads[f'band_{band}_freq'] = nn.Linear(hidden_dim, 1)
-                heads[f'band_{band}_gain'] = nn.Linear(hidden_dim, 1)
-                heads[f'band_{band}_q'] = nn.Linear(hidden_dim, 1)
-                heads[f'band_{band}_filter_type'] = nn.Linear(hidden_dim, 5)  # 5 filter types: low-shelf, bell, high-shelf, highpass, lowpass
-            
-        elif self.effect_name == "reverb":
+        if self.effect_name == "reverb":
             # Reverb: Complete set of parameters for realistic reverb
             heads['room_size'] = nn.Linear(hidden_dim, 1)      # Room size (0-1)
             heads['pre_delay'] = nn.Linear(hidden_dim, 1)      # Pre-delay in ms
@@ -75,17 +155,13 @@ class EffectDecoderBlock(nn.Module):
             heads['dry_gain'] = nn.Linear(hidden_dim, 1)       # Dry signal level
             
         elif self.effect_name == "distortion":
-            # Distortion: Complete set for realistic distortion
+            # Distortion: Simplified set (processor에서 실제 사용하는 것만)
             heads['gain'] = nn.Linear(hidden_dim, 1)           # Drive/gain
-            heads['bias'] = nn.Linear(hidden_dim, 1)           # DC bias
-            heads['tone'] = nn.Linear(hidden_dim, 1)           # Tone control
-            heads['mix'] = nn.Linear(hidden_dim, 1)            # Wet/dry mix
+            heads['color'] = nn.Linear(hidden_dim, 1)          # Color/bias (processor의 bias와 매핑)
             
         elif self.effect_name == "pitch":
-            # Pitch shift: Complete set for pitch shifting
-            heads['pitch_shift'] = nn.Linear(hidden_dim, 1)    # Pitch ratio
-            heads['formant_shift'] = nn.Linear(hidden_dim, 1)  # Formant correction
-            heads['mix'] = nn.Linear(hidden_dim, 1)            # Wet/dry mix
+            # Pitch shift: Simplified set (processor에서 실제 사용하는 것만)
+            heads['scale'] = nn.Linear(hidden_dim, 1)          # Pitch scale (processor의 pitch_shift와 매핑)
             
         else:
             # Generic parameters
@@ -125,16 +201,28 @@ class EffectDecoderBlock(nn.Module):
         
         if self.effect_name == "equalizer":
             if "freq" in param_name:
-                # Frequency: 20Hz - 20kHz, distributed logarithmically
-                return torch.sigmoid(raw_value) * 19980 + 20
+                # 완전히 자유로운 frequency 생성 - 밴드별 bias 완전 제거
+                # 전체 주파수 범위 (20Hz - 20kHz)에서 균등하게 생성
+                sigmoid_val = torch.sigmoid(raw_value)
+                log_min = torch.log(torch.tensor(20.0))
+                log_max = torch.log(torch.tensor(20000.0))
+                
+                # 로그 스케일에서 균등 분포
+                log_freq = log_min + sigmoid_val * (log_max - log_min)
+                
+                return torch.exp(log_freq)
             elif "gain" in param_name:
-                # Gain: -20dB to +20dB
-                return torch.tanh(raw_value) * 20
+                # Gain: -30dB to +30dB (범위 확장)
+                return torch.tanh(raw_value) * 30
             elif "q" in param_name:
-                # Q factor: 0.1 to 10.0
-                return torch.sigmoid(raw_value) * 9.9 + 0.1
+                # Q factor: 0.1 to 30.0 (로그 스케일)
+                sigmoid_val = torch.sigmoid(raw_value)
+                log_min = torch.log(torch.tensor(0.1))
+                log_max = torch.log(torch.tensor(30.0))
+                log_q = log_min + sigmoid_val * (log_max - log_min)
+                return torch.exp(log_q)
             elif "filter_type" in param_name:
-                # Filter type: softmax over 3 types (low-shelf, bell, high-shelf)
+                # Filter type: softmax over 5 types
                 return torch.softmax(raw_value, dim=-1)
                 
         elif self.effect_name == "reverb":
@@ -156,31 +244,20 @@ class EffectDecoderBlock(nn.Module):
                 
         elif self.effect_name == "distortion":
             if param_name == "gain":
-                # Distortion gain: 1 to 20 (higher range for more distortion)
-                return torch.sigmoid(raw_value) * 19 + 1
-            elif param_name == "bias":
-                # Bias: -1 to 1
+                # Distortion gain: 1 to 10 (torchaudio_processor 범위에 맞춤)
+                return torch.sigmoid(raw_value) * 9 + 1
+            elif param_name == "color":
+                # Color/bias: -1 to 1 (torchaudio_processor의 bias와 매핑)
                 return torch.tanh(raw_value)
-            elif param_name == "tone":
-                # Tone: 0 to 1 (0=dark, 1=bright)
-                return torch.sigmoid(raw_value)
-            elif param_name == "mix":
-                # Mix: 0 to 1 (0=dry, 1=wet)
-                return torch.sigmoid(raw_value)
                 
         elif self.effect_name == "pitch":
-            if param_name == "pitch_shift":
-                # Pitch shift: 0.5 to 2.0 (pitch ratio)
+            if param_name == "scale":
+                # Pitch scale: 0.5 to 2.0 (torchaudio_processor의 pitch_shift와 매핑)
                 return torch.sigmoid(raw_value) * 1.5 + 0.5
-            elif param_name == "formant_shift":
-                # Formant shift: 0.8 to 1.2
-                return torch.sigmoid(raw_value) * 0.4 + 0.8
-            elif param_name == "mix":
-                # Mix: 0 to 1
-                return torch.sigmoid(raw_value)
         
         # Default: sigmoid activation
         return torch.sigmoid(raw_value)
+    
 
 
 class ParallelPresetDecoder(nn.Module):
@@ -221,9 +298,18 @@ class ParallelPresetDecoder(nn.Module):
         )
         
         # Parallel effect decoders
-        self.eq_decoder = EffectDecoderBlock(
-            shared_hidden_dim, decoder_hidden_dim, num_decoder_layers, dropout, "equalizer"
-        )
+        # EQ: 5개의 독립적인 밴드 decoder
+        self.eq_band_decoders = nn.ModuleList([
+            EQBandDecoder(
+                shared_hidden_dim, 
+                decoder_hidden_dim // 2,  # 더 작은 hidden_dim (128)
+                num_decoder_layers - 1,   # 더 간단한 구조 (2 layers)
+                dropout, 
+                band_id=band_id
+            ) for band_id in range(1, 6)  # 5개 밴드
+        ])
+        
+        # 다른 effect들
         self.reverb_decoder = EffectDecoderBlock(
             shared_hidden_dim, decoder_hidden_dim, num_decoder_layers, dropout, "reverb"
         )
@@ -243,6 +329,8 @@ class ParallelPresetDecoder(nn.Module):
                 dropout=dropout,
                 batch_first=True
             )
+            # 9개 effect tokens에 대한 positional encoding 추가
+            self.effect_position_embedding = nn.Parameter(torch.randn(9, shared_hidden_dim) * 0.02)
     
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, Dict[str, torch.Tensor]]:
         """
@@ -259,25 +347,48 @@ class ParallelPresetDecoder(nn.Module):
         
         # Optional cross-attention between effects
         if self.use_cross_attention:
-            # Create effect tokens
+            # Create effect tokens with positional encoding
             batch_size = shared_features.shape[0]
-            effect_tokens = shared_features.unsqueeze(1).expand(-1, 4, -1)  # (batch_size, 4_effects, dim)
+            # 9개 토큰: 5개 EQ 밴드 + 3개 다른 effect
+            effect_tokens = shared_features.unsqueeze(1).expand(-1, 9, -1)  # (batch_size, 9_effects, dim)
+            
+            # Add positional encoding to distinguish different effects/bands
+            effect_tokens = effect_tokens + self.effect_position_embedding.unsqueeze(0)
+            
+            # Add small random noise to encourage diversity
+            if self.training:
+                noise = torch.randn_like(effect_tokens) * 0.01
+                effect_tokens = effect_tokens + noise
             
             attended_features, _ = self.cross_attention(
                 effect_tokens, effect_tokens, effect_tokens
             )
             
             # Split attended features for each effect
-            eq_features = attended_features[:, 0, :]      # EQ
-            reverb_features = attended_features[:, 1, :]  # Reverb
-            dist_features = attended_features[:, 2, :]    # Distortion
-            pitch_features = attended_features[:, 3, :]   # Pitch
+            eq_band_features = [attended_features[:, i, :] for i in range(5)]  # 5개 EQ 밴드
+            reverb_features = attended_features[:, 5, :]  # Reverb
+            dist_features = attended_features[:, 6, :]    # Distortion
+            pitch_features = attended_features[:, 7, :]   # Pitch
         else:
-            # Use same features for all effects
-            eq_features = reverb_features = dist_features = pitch_features = shared_features
+            # Use same features for all effects with small perturbations
+            if self.training:
+                base_noise = torch.randn_like(shared_features) * 0.005
+                eq_band_features = [shared_features + torch.randn_like(shared_features) * 0.005 for _ in range(5)]
+                reverb_features = shared_features + torch.randn_like(shared_features) * 0.005
+                dist_features = shared_features + torch.randn_like(shared_features) * 0.005  
+                pitch_features = shared_features + torch.randn_like(shared_features) * 0.005
+            else:
+                eq_band_features = [shared_features for _ in range(5)]
+                reverb_features = dist_features = pitch_features = shared_features
         
         # Parallel decoding
-        eq_params = self.eq_decoder(eq_features)
+        # EQ: 5개 밴드 독립적으로 디코딩
+        eq_params = {}
+        for i, eq_band_decoder in enumerate(self.eq_band_decoders):
+            band_params = eq_band_decoder(eq_band_features[i])
+            eq_params.update(band_params)
+        
+        # 다른 effect들
         reverb_params = self.reverb_decoder(reverb_features)
         distortion_params = self.distortion_decoder(dist_features)
         pitch_params = self.pitch_decoder(pitch_features)
@@ -324,14 +435,12 @@ class ParallelPresetDecoder(nn.Module):
         # Distortion parameters (2개만 - guide preset과 일치)
         raw_tensors.extend([
             distortion_params["gain"],
-            distortion_params["bias"]  # bias를 color로 매핑
-            # tone, mix 제외
+            distortion_params["color"]  # color 파라미터 사용
         ])
         
         # Pitch parameters (1개만 - guide preset과 일치)
         raw_tensors.extend([
-            pitch_params["pitch_shift"]  # pitch_shift를 scale로 매핑
-            # formant_shift, mix 제외
+            pitch_params["scale"]  # scale 파라미터 사용
         ])
         
         # Concatenate all raw tensors (총 28개: 20 + 5 + 2 + 1)
@@ -339,6 +448,15 @@ class ParallelPresetDecoder(nn.Module):
         
         # Add raw tensor to output
         preset["_raw_params"] = raw_params_tensor
+        
+        # 파라미터 범위 검증 및 로깅 (디버깅용)
+        if hasattr(self, '_debug_params') and self._debug_params:
+            self._validate_parameter_ranges(preset)
+        
+        # EQ frequency diversity loss 계산 (선택적)
+        if hasattr(self, '_enable_diversity_loss') and self._enable_diversity_loss:
+            diversity_loss = self._compute_frequency_diversity_loss(preset)
+            preset["_diversity_loss"] = diversity_loss
         
         return preset
     
@@ -379,17 +497,13 @@ class ParallelPresetDecoder(nn.Module):
         """Format distortion parameters into differentiable format"""
         return {
             "gain": params["gain"],
-            "bias": params["bias"],
-            "tone": params["tone"],
-            "mix": params["mix"]
+            "color": params["color"]
         }
     
     def _format_pitch_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format pitch parameters into differentiable format"""
         return {
-            "pitch_shift": params["pitch_shift"],
-            "formant_shift": params["formant_shift"],
-            "mix": params["mix"]
+            "scale": params["scale"]
         }
     
     # Backward compatibility: pedalboard format methods
@@ -432,14 +546,154 @@ class ParallelPresetDecoder(nn.Module):
         """Format distortion parameters into pedalboard format (backward compatibility)"""
         return {
             "gain": params["gain"],
-            "color": params["bias"]  # Map bias to color for compatibility
+            "color": params["color"]
         }
     
     def _format_pitch_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format pitch parameters into pedalboard format (backward compatibility)"""
         return {
-            "scale": params["pitch_shift"]  # Map pitch_shift to scale for compatibility
+            "scale": params["scale"]
         }
+    
+    def _validate_parameter_ranges(self, preset: Dict) -> None:
+        """파라미터 범위 검증 및 경고 출력"""
+        warnings = []
+        
+        # EQ 파라미터 검증
+        if "equalizer" in preset:
+            eq_params = preset["equalizer"]
+            for band_key, band_params in eq_params.items():
+                if isinstance(band_params, dict):
+                    freq = band_params.get("center_freq")
+                    gain = band_params.get("gain_db")
+                    q = band_params.get("q")
+                    
+                    if freq is not None:
+                        freq_val = freq.item() if hasattr(freq, 'item') else freq
+                        if not (20 <= freq_val <= 20000):
+                            warnings.append(f"EQ {band_key} frequency {freq_val:.1f}Hz out of range [20-20000]")
+                    
+                    if gain is not None:
+                        gain_val = gain.item() if hasattr(gain, 'item') else gain
+                        if not (-30 <= gain_val <= 30):
+                            warnings.append(f"EQ {band_key} gain {gain_val:.1f}dB out of range [-30-30]")
+                    
+                    if q is not None:
+                        q_val = q.item() if hasattr(q, 'item') else q
+                        if not (0.1 <= q_val <= 30):
+                            warnings.append(f"EQ {band_key} Q {q_val:.2f} out of range [0.1-30]")
+        
+        # Reverb 파라미터 검증
+        if "reverb" in preset:
+            reverb_params = preset["reverb"]
+            for param_name, expected_range in [
+                ("room_size", (0, 1)),
+                ("pre_delay", (0, 100)),
+                ("diffusion", (0, 1)),
+                ("damping", (0, 1)),
+                ("wet_gain", (0, 1)),
+                ("dry_gain", (0, 1))
+            ]:
+                if param_name in reverb_params:
+                    val = reverb_params[param_name]
+                    val_item = val.item() if hasattr(val, 'item') else val
+                    min_val, max_val = expected_range
+                    if not (min_val <= val_item <= max_val):
+                        warnings.append(f"Reverb {param_name} {val_item:.3f} out of range [{min_val}-{max_val}]")
+        
+        # Distortion 파라미터 검증
+        if "distortion" in preset:
+            dist_params = preset["distortion"]
+            
+            gain = dist_params.get("gain")
+            if gain is not None:
+                gain_val = gain.item() if hasattr(gain, 'item') else gain
+                if not (1 <= gain_val <= 10):
+                    warnings.append(f"Distortion gain {gain_val:.2f} out of range [1-10]")
+            
+            color = dist_params.get("color")
+            if color is not None:
+                color_val = color.item() if hasattr(color, 'item') else color
+                if not (-1 <= color_val <= 1):
+                    warnings.append(f"Distortion color {color_val:.3f} out of range [-1-1]")
+        
+        # Pitch 파라미터 검증
+        if "pitch" in preset:
+            pitch_params = preset["pitch"]
+            
+            scale = pitch_params.get("scale")
+            if scale is not None:
+                scale_val = scale.item() if hasattr(scale, 'item') else scale
+                if not (0.5 <= scale_val <= 2.0):
+                    warnings.append(f"Pitch scale {scale_val:.3f} out of range [0.5-2.0]")
+        
+        # 경고 출력
+        if warnings:
+            print(f"⚠️ Parameter range warnings:")
+            for warning in warnings[:5]:  # 최대 5개만 출력
+                print(f"   - {warning}")
+            if len(warnings) > 5:
+                print(f"   - ... and {len(warnings) - 5} more warnings")
+    
+    def enable_debug_mode(self):
+        """디버그 모드 활성화 (파라미터 범위 검증)"""
+        self._debug_params = True
+        print("🔍 Decoder debug mode enabled - parameter ranges will be validated")
+    
+    def disable_debug_mode(self):
+        """디버그 모드 비활성화"""
+        self._debug_params = False
+    
+    def enable_diversity_loss(self):
+        """Frequency diversity loss 활성화"""
+        self._enable_diversity_loss = True
+        print("🎯 EQ frequency diversity loss enabled")
+    
+    def disable_diversity_loss(self):
+        """Frequency diversity loss 비활성화"""
+        self._enable_diversity_loss = False
+    
+    def _compute_frequency_diversity_loss(self, preset: Dict) -> torch.Tensor:
+        """EQ 밴드들 간의 frequency 다양성을 장려하는 loss"""
+        try:
+            if "equalizer" not in preset:
+                return torch.tensor(0.0)
+            
+            eq_params = preset["equalizer"]
+            frequencies = []
+            
+            # 모든 밴드의 frequency 수집
+            for band in range(1, 6):
+                band_key = f"band_{band}"
+                if band_key in eq_params and "center_freq" in eq_params[band_key]:
+                    freq = eq_params[band_key]["center_freq"]
+                    frequencies.append(freq)
+            
+            if len(frequencies) < 2:
+                return torch.tensor(0.0)
+            
+            # Frequency들을 로그 스케일로 변환
+            log_frequencies = torch.stack([torch.log(f + 1e-6) for f in frequencies])
+            
+            # 모든 frequency 쌍 간의 거리 계산
+            num_freqs = len(frequencies)
+            diversity_loss = torch.tensor(0.0)
+            
+            for i in range(num_freqs):
+                for j in range(i + 1, num_freqs):
+                    # 로그 스케일에서의 거리
+                    log_distance = torch.abs(log_frequencies[i] - log_frequencies[j])
+                    
+                    # 너무 가까운 frequency들에 페널티 (로그 스케일에서 0.5 이하)
+                    penalty = torch.exp(-log_distance * 2.0)  # 가까울수록 큰 페널티
+                    diversity_loss += penalty
+            
+            # 평균 페널티 반환
+            num_pairs = num_freqs * (num_freqs - 1) / 2
+            return diversity_loss / num_pairs
+            
+        except Exception as e:
+            return torch.tensor(0.0)
 
 
 # ===============================================

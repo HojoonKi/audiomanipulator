@@ -244,7 +244,7 @@ class CrossAttentionAdapter(nn.Module):
     def __init__(
         self,
         audio_dim: int = 512,
-        llm_dim: int = 1024,
+        llm_dim: int = 768,
         attn_dim: int = 256,
                  num_heads: int = 8,
         mlp_hidden_dim: int = 256,

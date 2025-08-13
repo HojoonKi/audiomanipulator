@@ -506,7 +506,7 @@ class TorchAudioProcessor(nn.Module):
             processed = self.distortion(
                 processed,
                 gain=dist_params.get("gain", 2.0),
-                bias=dist_params.get("bias", 0.0)
+                bias=dist_params.get("color", 0.0)  # color를 bias로 매핑
             )
         
         # Apply Pitch Shift if present
@@ -514,7 +514,7 @@ class TorchAudioProcessor(nn.Module):
             pitch_params = preset["pitch"]
             processed = self.pitch(
                 processed,
-                pitch_shift=pitch_params.get("pitch_shift", 1.0)
+                pitch_shift=pitch_params.get("scale", 1.0)  # scale을 pitch_shift로 매핑
             )
         
         return processed
@@ -551,10 +551,10 @@ def test_torchaudio_processor():
         },
         "distortion": {
             "gain": torch.tensor(3.0),
-            "bias": torch.tensor(0.1)
+            "color": torch.tensor(0.1)
         },
         "pitch": {
-            "pitch_shift": torch.tensor(1.2)
+            "scale": torch.tensor(1.2)
         }
     }
     

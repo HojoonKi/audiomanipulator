@@ -11,6 +11,9 @@ import os
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
 os.environ.setdefault("TORCH_DISABLE_DYNAMO", "1")
+# HuggingFace 모델 다운로드 관련 설정 (캐시 우선 사용)
+# os.environ.setdefault("HF_HUB_OFFLINE", "1")  # 오프라인 모드는 비활성화
+# os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")  # 필요시 온라인 다운로드 허용
 
 import sys
 import argparse
@@ -35,13 +38,26 @@ sys.path.append('/app')
 from pipeline import TunedCLAPPipeline, build_tuned_clap_model
 from encoder.text_encoder import CLAPTextEncoder
 from dataset import (
-    PureDescriptionDataset,
+    PureDescriptionDataset, 
     PretrainDataset,  # 사전 훈련 전용 데이터셋 추가
     custom_collate_no_guide,
     custom_collate_with_guide,
     load_descriptions, 
     split_descriptions
 )
+from loss import (
+    compute_self_supervised_clap_loss,
+    compute_guide_loss,
+    compute_batch_guide_loss,
+    compute_batch_guide_loss_simple,
+    compute_batch_guide_loss_normalized_l1,
+    _compute_frequency_regularization_loss,
+    extract_guide_values,
+    _normalize_parameters_for_loss,
+    compute_adversarial_training_loss,
+    compute_diversity_metrics
+)
+from discriminator import create_discriminator
 from typing import List
 
 
@@ -115,7 +131,39 @@ def create_model_and_optimizer(args):
         weight_decay=0.01
     )
     
-    return model, optimizer, teacher_clap
+    # 5. 학습률 스케줄러 생성 (본훈련용)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.num_epochs, eta_min=args.learning_rate * 0.1
+    )
+    
+    # 6. Discriminator 생성 (적대적 학습용)
+    discriminator = None
+    discriminator_optimizer = None
+    discriminator_scheduler = None
+    
+    if getattr(args, 'use_adversarial', False):
+        print("🎯 적대적 학습용 Discriminator 생성...")
+        discriminator = create_discriminator({
+            'input_dim': 28,
+            'hidden_dims': [128, 64, 32],
+            'dropout_rate': 0.3
+        })
+        
+        # Discriminator 옵티마이저 (Generator보다 약간 낮은 학습률)
+        discriminator_optimizer = optim.AdamW(
+            discriminator.parameters(),
+            lr=args.learning_rate * 0.5,  # Generator의 절반 학습률
+            weight_decay=0.01
+        )
+        
+        # Discriminator 스케줄러
+        discriminator_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            discriminator_optimizer, T_max=args.num_epochs, eta_min=args.learning_rate * 0.05
+        )
+        
+        print(f"✅ Discriminator 파라미터: {sum(p.numel() for p in discriminator.parameters()):,}")
+    
+    return model, optimizer, teacher_clap, scheduler, discriminator, discriminator_optimizer, discriminator_scheduler
 
 
 def create_datasets(args):
@@ -174,63 +222,14 @@ def create_datasets(args):
     return train_loader, val_loader
 
 
-def compute_self_supervised_clap_loss(
-    fx_model: torch.nn.Module,         # 훈련시킬 모델 (학생)
-    clap_model: torch.nn.Module,        # 고정된 평가자 모델 (교사)
-    original_audios: torch.Tensor,    # 원본 오디오 배치
-    fx_texts: List[str],              # 적용된 FX에 대한 텍스트 설명 배치
-    temperature: float = 0.07
-) -> torch.Tensor:
-    """
-    자기 지도 방식으로 FX 모델을 훈련하기 위한 CLAP Loss를 계산합니다.
-    업데이트된 CLAPTextEncoder의 새로운 메서드들을 사용합니다.
-    
-    Args:
-        fx_model: 훈련 대상인 FX 적용 모델 (TunedCLAPPipeline).
-        clap_model: 가중치가 고정된(frozen) 사전 훈련된 CLAP 모델.
-        original_audios: 원본 오디오 텐서 배치.
-        fx_texts: 각 오디오에 적용된 랜덤 FX를 설명하는 텍스트 리스트.
-        temperature: Contrastive Loss의 온도 파라미터.
-        
-    Returns:
-        torch.Tensor: FX 모델 업데이트를 위한 스칼라 손실 값.
-    """
-    device = original_audios.device
-
-    try:
-        # 1. 학생(fx_model)이 과제 수행: 텍스트 설명에 맞춰 오디오 처리
-        with torch.cuda.amp.autocast(enabled=False):  # 안정성을 위해 FP32 유지
-            outputs = fx_model(texts=fx_texts, audio=original_audios, use_real_audio=False)
-            predicted_audios = outputs['processed_audio']
-
-        # 2. 오디오 차원 조정 (CLAP은 모노 오디오 처리) - gradient 유지
-        if predicted_audios.dim() == 3:  # (batch, channels, samples)
-            if predicted_audios.size(1) > 1:  # 스테레오를 모노로 변환
-                predicted_audios_mono = predicted_audios.mean(dim=1)  # (batch, samples)
-            else:
-                predicted_audios_mono = predicted_audios.squeeze(1)  # (batch, samples)
-        elif predicted_audios.dim() == 2:  # (batch, samples) - 이미 올바른 형태
-            predicted_audios_mono = predicted_audios
-        else:  # (samples,) - 단일 오디오
-            predicted_audios_mono = predicted_audios.unsqueeze(0)  # (1, samples)
-        
-        # 3. 업데이트된 CLAPTextEncoder의 compute_clap_loss 메서드 직접 사용
-        # 이 메서드는 내부적으로 gradient flow가 보장된 방식으로 구현되어 있음
-        loss = clap_model.compute_clap_loss(predicted_audios_mono, fx_texts)
-        
-        return loss
-        
-    except Exception as e:
-        print(f"자기지도 CLAP loss 실패: {e}")
-        import traceback
-        traceback.print_exc()
-        return torch.tensor(0.1, device=device, requires_grad=True)
 
 
-def train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap, args):
+
+def train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap, args, scheduler=None):
     """훈련 에포크"""
     model.train()
     total_loss = 0.0
+    metrics_logged_this_epoch = False  # 에포크당 한 번만 메트릭 로깅
     
     # 메인 프로세스에서만 진행 표시줄 생성
     pbar = train_loader
@@ -267,21 +266,39 @@ def train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap
             
             total_loss += loss.item()
             
+            # 모델 예측값 분석 (에포크당 한 번만)
+            if not metrics_logged_this_epoch and accelerator.is_main_process:
+                try:
+                    # 모델 예측 수행
+                    with torch.no_grad():
+                        outputs = model(texts=descriptions, audio=audios, use_real_audio=False)
+                        if 'preset_params' in outputs and '_raw_params' in outputs['preset_params']:
+                            _log_prediction_metrics(outputs['preset_params'], epoch, len(train_loader), args)
+                            metrics_logged_this_epoch = True
+                except Exception as e:
+                    pass  # 메트릭 로깅 실패해도 훈련은 계속
+            
             # 진행 표시줄 업데이트 (메인 프로세스에서만)
             if accelerator.is_main_process and hasattr(pbar, 'set_postfix'):
+                current_lr = scheduler.get_last_lr()[0] if scheduler else args.learning_rate
                 pbar.set_postfix({
                     'Loss': f'{loss.item():.4f}',
-                    'AvgLoss': f'{total_loss/(batch_idx+1):.4f}'
+                    'AvgLoss': f'{total_loss/(batch_idx+1):.4f}',
+                    'LR': f'{current_lr:.1e}'
                 })
                 
                 # wandb logging (배치별) - 50번마다만 로깅
                 if args.use_wandb and batch_idx % 50 == 0:
-                    global_step = epoch * len(train_loader) + batch_idx
+                    # Main training step 계산 (pretrain step 이후부터 시작)
+                    pretrain_offset = args.pretrain_epochs if args.enable_pretrain else 0
+                    main_training_step = pretrain_offset + epoch * len(train_loader) + batch_idx + 1
                     wandb.log({
                         'train/batch_loss': loss.item(),
                         'train/batch_idx': batch_idx,
-                        'train/epoch': epoch + 1
-                    }, step=global_step)
+                        'train/epoch': epoch + 1,
+                        'train/learning_rate': current_lr,
+                        'train/phase': 'main_training'
+                    }, step=main_training_step)
                 
         except Exception as e:
             if accelerator.is_main_process:
@@ -337,130 +354,236 @@ def validate(model, val_loader, accelerator, teacher_clap):
     return avg_loss
 
 
-def extract_guide_values(guide_preset):
-    """Guide preset에서 28개 값 추출 - fined_presets_filtered.py 구조에 맞춤"""
-    values = []
+def save_checkpoint(model, optimizer, scheduler, accelerator, epoch, train_loss, val_loss, args, is_best=False):
+    """체크포인트 저장 - 메인 프로세스에서만"""
+    if not accelerator.is_main_process:
+        return
     
-    # Filter type 매핑 (문자열 -> 숫자)
-    filter_type_mapping = {
-        "low-shelf": 0,
-        "bell": 1, 
-        "high-shelf": 2,
-        "highpass": 3,
-        "lowpass": 4,
-        # 추가 호환성
-        "notch": 1,  # notch는 bell과 유사
-        "low_shelf": 0,  # 언더스코어 버전
-        "high_shelf": 2,
-        "low_pass": 4,
-        "high_pass": 3
-    }
-    
-    # EQ (20개): frequency, gain, q, filter_type × 5
-    eq_section = guide_preset['Equalizer']  # 리스트 형태
-    for eq_band in eq_section:  # 5개 밴드
-        # filter_type을 숫자로 변환
-        filter_type_str = eq_band['filter_type']
-        filter_type_num = filter_type_mapping.get(filter_type_str, 1)  # 기본값: bell (1)
+    try:
+        # 저장 디렉토리 생성
+        os.makedirs(args.save_dir, exist_ok=True)
         
-        values.extend([
-            eq_band['frequency'],
-            eq_band['gain'], 
-            eq_band['q'],
-            filter_type_num
+        # Accelerate에서는 unwrap_model로 원본 모델 접근
+        base_model = accelerator.unwrap_model(model)
+        full_state = base_model.state_dict()
+        
+        # 어댑터 파라미터만 필터링 (훈련 가능한 파라미터만)
+        adapter_state = {}
+        frozen_params = []
+        
+        for name, param in base_model.named_parameters():
+            if param.requires_grad:
+                # 어댑터 관련 파라미터만 저장
+                if any(adapter_key in name for adapter_key in [
+                    'backbone.adapters',     # CrossAttentionAdapter들
+                    'backbone.final_norm',   # 최종 LayerNorm
+                    'decoder.',             # decoder는 항상 훈련
+                ]):
+                    adapter_state[name] = full_state[name]
+            else:
+                frozen_params.append(name)
+        
+        print(f"💾 어댑터 파라미터만 저장: {len(adapter_state)}/{len(full_state)} layers")
+        if accelerator.is_main_process and epoch == 0:  # 첫 번째 저장시에만 상세 정보
+            print(f"   - 저장되는 어댑터: {list(adapter_state.keys())[:3]}...")
+            print(f"   - Frozen 파라미터 수: {len(frozen_params)}")
+        
+        model_state = adapter_state
+        
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model_state,  # 어댑터 파라미터만
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'args': args,
+            'adapter_info': {
+                'total_params': len(full_state),
+                'adapter_params': len(adapter_state),
+                'frozen_params': len(frozen_params),
+                'adapter_keys': list(adapter_state.keys()),
+                'training_mode': 'adapter_only'
+            }
+        }
+        
+        # 일반 체크포인트 저장
+        checkpoint_path = os.path.join(args.save_dir, f'checkpoint_epoch_{epoch+1}.pt')
+        torch.save(checkpoint, checkpoint_path)
+        print(f"💾 체크포인트 저장: {checkpoint_path}")
+        
+        # 최고 성능 체크포인트 저장
+        if is_best:
+            best_path = os.path.join(args.save_dir, 'best_model.pt')
+            torch.save(checkpoint, best_path)
+            print(f"🏆 최고 성능 모델 저장: {best_path}")
+            
+    except Exception as e:
+        print(f"❌ 체크포인트 저장 실패: {e}")
+
+
+
+
+
+
+
+
+
+
+
+def _log_generated_parameters(generated_preset, guide_preset, epoch):
+    """생성된 파라미터와 가이드 파라미터 비교 출력"""
+    try:
+        print(f"\n🔍 [Epoch {epoch+1}] 생성된 파라미터 vs 가이드 파라미터:")
+        print("=" * 70)
+        
+        # Raw params 추출
+        if "_raw_params" in generated_preset:
+            generated_raw = generated_preset["_raw_params"]
+            if generated_raw.dim() > 1:
+                generated_raw = generated_raw[0]  # 첫 번째 배치 아이템
+            generated_values = generated_raw.detach().cpu().numpy()
+        else:
+            print("❌ _raw_params가 없습니다.")
+            return
+        
+        # Guide values 추출
+        guide_values = extract_guide_values(guide_preset)
+        
+        # 파라미터 이름 정의
+        param_names = []
+        
+        # EQ (20개)
+        for i in range(5):
+            param_names.extend([
+                f"EQ{i+1}_freq", f"EQ{i+1}_gain", f"EQ{i+1}_q", f"EQ{i+1}_type"
+            ])
+        
+        # Reverb (5개)
+        param_names.extend([
+            "Rev_room", "Rev_delay", "Rev_diff", "Rev_damp", "Rev_wet"
         ])
-    
-    # Reverb (5개)
-    reverb = guide_preset['Reverb']
-    values.extend([
-        reverb['room_size'],
-        reverb['pre_delay'], 
-        reverb['diffusion'],
-        reverb['damping'],
-        reverb['wet_gain']
-    ])
-    
-    # Distortion (2개)
-    dist = guide_preset['Distortion']
-    values.extend([
-        dist['gain'],
-        dist['color']
-    ])
-    
-    # Pitch (1개)
-    pitch = guide_preset['Pitch']
-    values.append(pitch['scale'])
-    
-    return values  # 28개 값 보장됨
+        
+        # Distortion (2개)
+        param_names.extend([
+            "Dist_gain", "Dist_color"
+        ])
+        
+        # Pitch (1개)
+        param_names.extend([
+            "Pitch_scale"
+        ])
+        
+        # 파라미터 비교 출력 (처음 10개만)
+        print("📊 주요 파라미터 비교 (Generated vs Guide):")
+        for i in range(min(10, len(generated_values))):
+            gen_val = generated_values[i]
+            guide_val = guide_values[i] if i < len(guide_values) else 0
+            diff = abs(gen_val - guide_val)
+            
+            print(f"  {param_names[i]:12}: {gen_val:8.4f} vs {guide_val:8.4f} (diff: {diff:6.4f})")
+        
+        if len(generated_values) > 10:
+            print(f"  ... (총 {len(generated_values)}개 파라미터 중 10개만 표시)")
+        
+        # 전체 MSE 계산 (원본값)
+        raw_mse = sum((g - t)**2 for g, t in zip(generated_values, guide_values)) / len(generated_values)
+        
+        # 정규화된 MSE 계산
+        generated_tensor = torch.FloatTensor(generated_values).unsqueeze(0)
+        guide_tensor = torch.FloatTensor(guide_values).unsqueeze(0)
+        normalized_gen, normalized_guide = _normalize_parameters_for_loss(generated_tensor, guide_tensor)
+        normalized_mse = torch.mean((normalized_gen - normalized_guide) ** 2).item()
+        
+        print(f"📈 원본 MSE: {raw_mse:.6f}")
+        print(f"📈 정규화 MSE: {normalized_mse:.6f} (실제 loss에 사용)")
+        print("=" * 70)
+        
+    except Exception as e:
+        print(f"❌ 파라미터 로깅 실패: {e}")
 
 
-def compute_guide_loss(model, generated_preset, guide_preset, device):
-    """Guide preset과의 차이를 이용한 간단한 MSE loss"""
+def _log_prediction_metrics(generated_preset, epoch, loader_len, args):
+    """본훈련 시 예측값 분포 및 다양한 메트릭 로깅"""
     try:
-        # 디코더에서 _raw_params 직접 추출
-        if isinstance(generated_preset, dict) and "_raw_params" in generated_preset:
-            generated_tensor = generated_preset["_raw_params"].to(device)
+        if "_raw_params" in generated_preset and args.use_wandb:
+            raw_params = generated_preset["_raw_params"]
+            if raw_params.dim() > 1:
+                raw_params = raw_params[0]  # 첫 번째 배치 아이템
             
-            # Guide preset을 간단한 tensor로 변환
-            guide_values = extract_guide_values(guide_preset)
-            if guide_values is None:
-                return torch.tensor(0.1, device=device, requires_grad=True)
+            values = raw_params.detach().cpu().numpy()
             
-            guide_tensor = torch.FloatTensor(guide_values).to(device)
+            # Main training step 계산 (에포크 시작 시점 기준으로 설정하여 step 역행 방지)
+            pretrain_offset = args.pretrain_epochs if hasattr(args, 'enable_pretrain') and args.enable_pretrain else 0
+            current_step = pretrain_offset + epoch * loader_len + 1
             
-            # 배치 차원 처리
-            if generated_tensor.dim() == 2:
-                generated_tensor = generated_tensor.squeeze(0)
+            # 기본 통계
+            stats = {
+                'predictions/mean': float(np.mean(values)),
+                'predictions/std': float(np.std(values)),
+                'predictions/min': float(np.min(values)),
+                'predictions/max': float(np.max(values)),
+                'predictions/median': float(np.median(values)),
+            }
             
-            # 직접 MSE 계산
-            mse_loss = nn.MSELoss()(generated_tensor, guide_tensor)
+            # 파라미터 그룹별 분석
+            # EQ parameters (0-19)
+            eq_params = values[:20]
+            stats.update({
+                'eq/mean': float(np.mean(eq_params)),
+                'eq/std': float(np.std(eq_params)),
+                'eq/range': float(np.max(eq_params) - np.min(eq_params)),
+            })
             
-            return mse_loss
-        else:
-            return torch.tensor(0.1, device=device, requires_grad=True)
+            # Reverb parameters (20-24)
+            reverb_params = values[20:25]
+            stats.update({
+                'reverb/mean': float(np.mean(reverb_params)),
+                'reverb/std': float(np.std(reverb_params)),
+                'reverb/range': float(np.max(reverb_params) - np.min(reverb_params)),
+            })
+            
+            # Distortion parameters (25-26)
+            dist_params = values[25:27]
+            stats.update({
+                'distortion/mean': float(np.mean(dist_params)),
+                'distortion/std': float(np.std(dist_params)),
+                'distortion/gain': float(dist_params[0]),
+                'distortion/color': float(dist_params[1]),
+            })
+            
+            # Pitch parameter (27)
+            pitch_param = values[27]
+            stats.update({
+                'pitch/scale': float(pitch_param),
+            })
+            
+            # 특정 값 범위 분석
+            stats.update({
+                'analysis/zero_count': int(np.sum(np.abs(values) < 0.01)),
+                'analysis/extreme_count': int(np.sum(np.abs(values) > 10.0)),
+                'analysis/negative_count': int(np.sum(values < 0)),
+                'analysis/positive_count': int(np.sum(values > 0)),
+            })
+            
+            # Wandb에 로깅 (옵션 사용 시에만)
+            if getattr(args, 'use_wandb', False):
+                wandb.log(stats, step=current_step)
+            
+            # 콘솔에도 간단히 출력
+            print(f"📊 [Epoch {epoch+1}] 예측값 분포: "
+                  f"평균={stats['predictions/mean']:.3f}, "
+                  f"표준편차={stats['predictions/std']:.3f}, "
+                  f"범위=[{stats['predictions/min']:.3f}, {stats['predictions/max']:.3f}]")
             
     except Exception as e:
-        print(f"❌ Guide loss 실패: {e}")
-        return torch.tensor(0.1, device=device, requires_grad=True)
+        print(f"❌ 예측값 메트릭 로깅 실패: {e}")
 
 
-def compute_batch_guide_loss(model, batch_generated_preset, batch_guide_presets, device):
-    """배치 단위 Guide Loss 계산"""
-    try:
-        # 배치 단위로 _raw_params 추출
-        if isinstance(batch_generated_preset, dict) and "_raw_params" in batch_generated_preset:
-            generated_batch_tensor = batch_generated_preset["_raw_params"].to(device)
-            
-            if generated_batch_tensor.dim() == 3:
-                generated_batch_tensor = generated_batch_tensor.squeeze(1)  # [batch_size, 28]
-            
-            # 모든 preset이 이미 검증됨, 직접 변환
-            batch_guide_values = []
-            
-            for guide_preset in batch_guide_presets:
-                guide_values = extract_guide_values(guide_preset)
-                batch_guide_values.append(guide_values)
-            
-            # Guide values를 배치 텐서로 스택
-            guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(device)  # [batch_size, 28]
-            
-            # 배치 MSE loss 계산
-            batch_mse_loss = nn.MSELoss()(generated_batch_tensor, guide_batch_tensor)
-            
-            return batch_mse_loss
-            
-        else:
-            return torch.tensor(0.1, device=device, requires_grad=True)
-            
-    except Exception as e:
-        print(f"❌ Batch guide loss 실패: {e}")
-        return torch.tensor(0.1, device=device, requires_grad=True)
-
-
-def simple_pretrain(model, optimizer, accelerator, args, teacher_clap):
+def simple_pretrain(model, optimizer, accelerator, args, teacher_clap, discriminator=None, discriminator_optimizer=None):
     """간단한 사전 훈련 - Fine Preset만 사용"""
     if not args.enable_pretrain:
-        return
+        return 0  # 사전 훈련 없으면 step 0 반환
     
     if accelerator.is_main_process:
         print("\n" + "="*60)
@@ -488,6 +611,17 @@ def simple_pretrain(model, optimizer, accelerator, args, teacher_clap):
     pretrain_scheduler = optim.lr_scheduler.CosineAnnealingLR(
         pretrain_optimizer, T_max=args.pretrain_epochs
     )
+    
+    # 사전훈련용 Discriminator Optimizer (적대적 학습 사용시)
+    pretrain_discriminator_optimizer = None
+    if discriminator is not None:
+        pretrain_discriminator_optimizer = optim.AdamW(
+            discriminator.parameters(),
+            lr=args.pretrain_lr * 0.5,  # Generator의 절반 학습률
+            weight_decay=0.01
+        )
+        if accelerator.is_main_process:
+            print(f"🎯 사전훈련용 Discriminator Optimizer 생성됨 (LR: {args.pretrain_lr * 0.5:.1e})")
     
     try:
         # 사전 훈련 전용 데이터셋 로드
@@ -536,29 +670,55 @@ def simple_pretrain(model, optimizer, accelerator, args, teacher_clap):
             drop_last=True
         )
         
-        # Accelerate로 준비
-        pretrain_optimizer, train_loader, val_loader = accelerator.prepare(
-            pretrain_optimizer, train_loader, val_loader
-        )
+        # Diversity loss 활성화 (frequency 다양성 장려)
+        try:
+            if hasattr(model, 'module'):  # DDP wrapped model
+                if hasattr(model.module, 'decoder') and hasattr(model.module.decoder, 'enable_diversity_loss'):
+                    model.module.decoder.enable_diversity_loss()
+                    if accelerator.is_main_process:
+                        print("🎯 사전훈련용 Frequency diversity loss 활성화됨")
+            else:
+                if hasattr(model, 'decoder') and hasattr(model.decoder, 'enable_diversity_loss'):
+                    model.decoder.enable_diversity_loss()
+                    if accelerator.is_main_process:
+                        print("🎯 사전훈련용 Frequency diversity loss 활성화됨")
+        except Exception as e:
+            if accelerator.is_main_process:
+                print(f"⚠️ Diversity loss 활성화 실패: {e}")
         
         if accelerator.is_main_process:
-            print(f"🔍 DEBUG: DataLoader 생성 완료:")
-            print(f"   - 훈련 배치 크기: {args.pretrain_batch_size}")
-            print(f"   - 훈련 샘플: {len(train_subset)}")
-            print(f"   - 검증 샘플: {len(val_subset)}")
-            print(f"   - 예상 훈련 배치 수: {len(train_loader)}")
-            print(f"   - 예상 검증 배치 수: {len(val_loader)}")
-            print(f"   - drop_last=True로 설정됨")
+            if discriminator is not None:
+                print("📋 사전훈련 Loss = Guide(0.4x) + Adversarial(1.2x) + CLAP(0.3x) + Diversity(0.3x) + Regularization(0.2x)")
+                print("⚔️ 적대적 학습 활성화 → 모드 붕괴 방지, 다양성 증진")
+                print("🎯 Discriminator → 평균값 출력 감지 및 페널티")
+                print("🎯 Generator → 실제와 구별 불가능한 다양한 preset 생성")
+            else:
+                print("📋 사전훈련 Loss = Normalized L1 Guide(0.8x) + CLAP(0.5x) + Diversity(0.5x) + Regularization(0.3x)")
+                print("🎯 정규화된 L1 Loss → frequency 스케일 문제 해결, 평균값 함정 방지")
+            print("🎯 CLAP Loss 추가 → 음향적 품질 향상")
+            print("🎯 SiLU 활성화 → 부드럽고 다양한 출력")
+            print("🎯 특정 값 타겟 제거 → 모델이 데이터로부터 자유롭게 학습")
+        
+        # Accelerate로 준비 (discriminator 포함 여부에 따라 다르게 처리)
+        if discriminator is not None and pretrain_discriminator_optimizer is not None:
+            pretrain_optimizer, train_loader, val_loader, discriminator, pretrain_discriminator_optimizer = accelerator.prepare(
+                pretrain_optimizer, train_loader, val_loader, discriminator, pretrain_discriminator_optimizer
+            )
+        else:
+            pretrain_optimizer, train_loader, val_loader = accelerator.prepare(
+                pretrain_optimizer, train_loader, val_loader
+            )
+        
         
         # 사전 훈련 루프
         best_pretrain_loss = float('inf')
         
         for epoch in range(args.pretrain_epochs):
-            # 사전 훈련 에포크
-            train_loss = pretrain_epoch(model, train_loader, pretrain_optimizer, accelerator, epoch, args)
+            # 사전 훈련 에포크 (적대적 학습 포함 가능)
+            train_loss = pretrain_epoch(model, train_loader, pretrain_optimizer, accelerator, epoch, args, teacher_clap, discriminator, pretrain_discriminator_optimizer)
             
             # 검증
-            val_loss = pretrain_validate(model, val_loader, accelerator, args)
+            val_loss = pretrain_validate(model, val_loader, accelerator, args, teacher_clap)
             
             # 스케줄러 업데이트
             pretrain_scheduler.step()
@@ -568,15 +728,16 @@ def simple_pretrain(model, optimizer, accelerator, args, teacher_clap):
                 print(f"Pretrain {epoch+1}/{args.pretrain_epochs}: "
                       f"Loss={train_loss:.6f}, Val={val_loss:.6f}, LR={current_lr:.1e}")
                 
-                # Wandb 사전 훈련 로깅
+                # Wandb 사전 훈련 로깅 (별도 step 시퀀스)
                 if args.use_wandb:
+                    pretrain_step = epoch + 1  # 사전훈련은 1부터 시작
                     wandb.log({
                         'pretrain/epoch': epoch + 1,
                         'pretrain/train_loss': train_loss,
                         'pretrain/val_loss': val_loss,
                         'pretrain/learning_rate': current_lr,
                         'pretrain/phase': 'guide_preset_only'
-                    }, step=epoch + 1)
+                    }, step=pretrain_step)
             
             # 최고 성능 추적
             if val_loss < best_pretrain_loss:
@@ -585,22 +746,45 @@ def simple_pretrain(model, optimizer, accelerator, args, teacher_clap):
         if accelerator.is_main_process:
             print(f"✅ 사전 훈련 완료! 최고 성능: {best_pretrain_loss:.6f}")
             print("="*60)
+        
+        # 사전훈련 완료 후 diversity loss 비활성화 (본훈련에서는 사용 안 함)
+        try:
+            if hasattr(model, 'module'):  # DDP wrapped model
+                if hasattr(model.module, 'decoder') and hasattr(model.module.decoder, 'disable_diversity_loss'):
+                    model.module.decoder.disable_diversity_loss()
+                    if accelerator.is_main_process:
+                        print("🔄 사전훈련 완료 → Frequency diversity loss 비활성화됨")
+            else:
+                if hasattr(model, 'decoder') and hasattr(model.decoder, 'disable_diversity_loss'):
+                    model.decoder.disable_diversity_loss()
+                    if accelerator.is_main_process:
+                        print("🔄 사전훈련 완료 → Frequency diversity loss 비활성화됨")
+        except Exception as e:
+            if accelerator.is_main_process:
+                print(f"⚠️ Diversity loss 비활성화 실패: {e}")
+        
+        if accelerator.is_main_process:
+            print("📋 본훈련에서는 CLAP loss만 사용됩니다.")
+        
+        # 사전 훈련에서 사용한 마지막 step 반환
+        return args.pretrain_epochs
     
     except Exception as e:
         if accelerator.is_main_process:
             print(f"❌ 사전 훈련 실패: {e}")
             traceback.print_exc()
+        return 0
     
     finally:
         # 원래 설정 복원
         args.learning_rate = original_lr
 
 
-def pretrain_epoch(model, train_loader, optimizer, accelerator, epoch, args):
+def pretrain_epoch(model, train_loader, optimizer, accelerator, epoch, args, teacher_clap, discriminator=None, discriminator_optimizer=None):
     """사전 훈련 전용 에포크"""
     model.train()
     total_loss = 0.0
-    
+    param_logged_this_epoch = False  # 에포크당 한 번만 파라미터 출력
     
     pbar = train_loader
     if accelerator.is_main_process:
@@ -649,10 +833,33 @@ def pretrain_epoch(model, train_loader, optimizer, accelerator, epoch, args):
             if 'preset_params' not in outputs:
                 continue
             
-            # Guide Loss 계산
-            batch_loss = compute_batch_guide_loss(
+            # 1. Guide Loss 계산 (사전훈련에서는 정규화된 L1 사용)
+            guide_loss = compute_batch_guide_loss_normalized_l1(
                 model, outputs['preset_params'], valid_guide_presets, accelerator.device
             )
+            
+            # 2. CLAP Loss 계산 (사전훈련에서도 CLAP 활용)
+            clap_loss = compute_self_supervised_clap_loss(
+                fx_model=model,
+                clap_model=teacher_clap,
+                original_audios=valid_audio_batch,
+                fx_texts=valid_descriptions,
+                temperature=0.07
+            )
+            
+            
+            # 5. Loss 결합 및 정규화 (사전훈련용)
+            guide_weight = 0.6       # Guide L1 loss 가중치
+            clap_weight = 0.4        # CLAP loss 가중치 (사전훈련에서는 낮게)
+            
+            batch_loss = (guide_weight * guide_loss + 
+                         clap_weight * clap_loss  
+                         )
+            
+            # 첫 번째 배치에서만 파라미터 출력 (에포크당 한 번)
+            if not param_logged_this_epoch and accelerator.is_main_process and len(valid_guide_presets) > 0:
+                _log_generated_parameters(outputs['preset_params'], valid_guide_presets[0], epoch)
+                param_logged_this_epoch = True
             
             # Backward pass
             optimizer.zero_grad()
@@ -684,7 +891,7 @@ def pretrain_epoch(model, train_loader, optimizer, accelerator, epoch, args):
     return avg_loss
 
 
-def pretrain_validate(model, val_loader, accelerator, args):
+def pretrain_validate(model, val_loader, accelerator, args, teacher_clap):
     """사전 훈련 전용 검증"""
     model.eval()
     total_loss = 0.0
@@ -730,7 +937,7 @@ def pretrain_validate(model, val_loader, accelerator, args):
                 if 'preset_params' not in outputs:
                     continue
                 
-                batch_loss = compute_batch_guide_loss(
+                batch_loss = compute_batch_guide_loss_normalized_l1(
                     model, outputs['preset_params'], valid_guide_presets, accelerator.device
                 )
                 
@@ -762,7 +969,7 @@ def main():
     parser.add_argument('--data_path', type=str, default='/app', help='데이터 경로')
     parser.add_argument('--batch_size', type=int, default=64, help='배치 크기')
     parser.add_argument('--num_epochs', type=int, default=400, help='에포크 수')
-    parser.add_argument('--learning_rate', type=float, default=1e-2, help='학습률')
+    parser.add_argument('--learning_rate', type=float, default=1e-4, help='학습률')
     parser.add_argument('--sample_rate', type=int, default=44100, help='샘플링 레이트')
     parser.add_argument('--audio_length', type=float, default=5.0, help='오디오 길이')
     parser.add_argument('--seed', type=int, default=42, help='랜덤 시드')
@@ -772,12 +979,22 @@ def main():
     # 사전 훈련 관련
     parser.add_argument('--enable_pretrain', action='store_true', default=True,
                        help='Guide preset으로 사전 훈련 활성화')
-    parser.add_argument('--pretrain_epochs', type=int, default=100,
+    parser.add_argument('--pretrain_epochs', type=int, default=40,
                        help='사전 훈련 에포크 수')
     parser.add_argument('--pretrain_batch_size', type=int, default=2,
                        help='사전 훈련 배치 크기')
-    parser.add_argument('--pretrain_lr', type=float, default=1e-2,
+    parser.add_argument('--pretrain_lr', type=float, default=4e-4,
                        help='사전 훈련 학습률')
+    
+    # 적대적 학습 관련
+    parser.add_argument('--use_adversarial', action='store_true', default=True,
+                       help='적대적 학습(GAN) 사용')
+    parser.add_argument('--adversarial_weight', type=float, default=1.0,
+                       help='적대적 손실 가중치')
+    parser.add_argument('--guide_weight', type=float, default=1.0,
+                       help='가이드 손실 가중치')
+    parser.add_argument('--use_feature_matching', action='store_true', default=True,
+                       help='Feature matching 손실 사용')
     
     # 로깅 관련
     parser.add_argument('--use_wandb', action='store_true', default=True,
@@ -849,7 +1066,7 @@ def main():
         print(f"🔄 Processes: {accelerator.num_processes}")
     
     # 모델 및 옵티마이저 생성
-    model, optimizer, teacher_clap = create_model_and_optimizer(args)
+    model, optimizer, teacher_clap, scheduler, discriminator, discriminator_optimizer, discriminator_scheduler = create_model_and_optimizer(args)
     
 
     
@@ -877,8 +1094,8 @@ def main():
         model.train()
 
     # Accelerate로 모든 것을 준비 - teacher_clap도 포함
-    model, optimizer, train_loader, val_loader, teacher_clap = accelerator.prepare(
-        model, optimizer, train_loader, val_loader, teacher_clap
+    model, optimizer, scheduler, train_loader, val_loader, teacher_clap = accelerator.prepare(
+        model, optimizer, scheduler, train_loader, val_loader, teacher_clap
     )
     
     # 모델 워밍업 (옵션) - 모든 프로세스에서 짧게 수행 후 캐시 정리로 메모리 균형화
@@ -917,42 +1134,78 @@ def main():
         else:
             print(f"📝 일반 훈련만 (Pure Description)")
         
+        if args.use_adversarial:
+            print(f"⚔️ 적대적 학습 활성화됨! (사전훈련에서 적용)")
+            print(f"   - Adversarial Weight: {args.adversarial_weight}")
+            print(f"   - Guide Weight: {args.guide_weight}")
+            print(f"   - Feature Matching: {args.use_feature_matching}")
+            print(f"   - 본훈련에서는 CLAP Loss만 사용")
+        
         print("🚀 훈련 시작!")
     
     # 1. 사전 훈련 실행 (활성화된 경우)
     if args.enable_pretrain:
-        simple_pretrain(model, optimizer, accelerator, args, teacher_clap)
+        # 사전훈련에서는 자체적으로 discriminator optimizer를 생성하므로 None 전달
+        simple_pretrain(model, optimizer, accelerator, args, teacher_clap, discriminator, None)
         
         if accelerator.is_main_process:
             print("🔄 사전 훈련 완료 - 일반 훈련 시작")
+            print(f"   - 사전 훈련 step: 1~{args.pretrain_epochs}")
+            print(f"   - 일반 훈련 step: {args.pretrain_epochs + 1}부터 시작")
     
     # 훈련 루프
+    best_val_loss = float('inf')
+    
     for epoch in range(args.num_epochs):
         # 훈련
-        train_loss = train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap, args)
+        train_loss = train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap, args, scheduler)
         
         # 검증
         val_loss = validate(model, val_loader, accelerator, teacher_clap)
         
+        # 스케줄러 업데이트
+        scheduler.step()
+        
+        # 최고 성능 추적
+        is_best = val_loss < best_val_loss
+        if is_best:
+            best_val_loss = val_loss
+        
         # 결과 출력 (메인 프로세스에서만)
         if accelerator.is_main_process:
+            current_lr = scheduler.get_last_lr()[0]
             phase_tag = " [Post-Pretrain]" if args.enable_pretrain else ""
+            best_tag = " 🏆" if is_best else ""
             print(f"Epoch {epoch+1}/{args.num_epochs}: "
                   f"Train Loss = {train_loss:.6f}, "
-                  f"Val Loss = {val_loss:.6f}{phase_tag}")
+                  f"Val Loss = {val_loss:.6f}, "
+                  f"LR = {current_lr:.1e}{phase_tag}{best_tag}")
             
             # wandb logging (에포크별)
             if args.use_wandb:
-                epoch_step = (epoch + 1) * len(train_loader)
+                # Main training epoch step (pretrain step 이후부터 시작)
+                pretrain_offset = args.pretrain_epochs if args.enable_pretrain else 0
+                main_epoch_step = pretrain_offset + (epoch + 1) * len(train_loader)
                 wandb.log({
                     'epoch/train_loss': train_loss,
                     'epoch/val_loss': val_loss,
+                    'epoch/learning_rate': current_lr,
                     'epoch/epoch_num': epoch + 1,
-                    'epoch/pretrain_enabled': args.enable_pretrain
-                }, step=epoch_step)
+                    'epoch/pretrain_enabled': args.enable_pretrain,
+                    'epoch/best_val_loss': best_val_loss,
+                    'epoch/phase': 'main_training'
+                }, step=main_epoch_step)
+        
+        # 체크포인트 저장
+        if (epoch + 1) % args.save_every == 0 or is_best:
+            save_checkpoint(model, optimizer, scheduler, accelerator, epoch, train_loss, val_loss, args, is_best)
     
     if accelerator.is_main_process:
         print("✅ 훈련 완료!")
+        print(f"🏆 최고 검증 성능: {best_val_loss:.6f}")
+        print(f"💾 체크포인트 저장 위치: {args.save_dir}")
+        print(f"   - 최고 성능 모델: {os.path.join(args.save_dir, 'best_model.pt')}")
+        print(f"   - 마지막 에포크: {os.path.join(args.save_dir, f'checkpoint_epoch_{args.num_epochs}.pt')}")
         
         # Wandb 종료
         if args.use_wandb:

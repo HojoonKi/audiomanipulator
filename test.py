@@ -21,8 +21,7 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 # 프로젝트 모듈 import
 try:
-    from pipeline import TextToAudioProcessingPipeline
-    from dynamic_pipeline_factory import DynamicPipelineFactory
+    from pipeline import TunedCLAPPipeline, build_tuned_clap_model
     from encoder.text_encoder import CLAPTextEncoder
 except ImportError as e:
     print(f"❌ 모듈 import 오류: {e}")
@@ -96,35 +95,66 @@ class AudioEffectTester:
             # 모델 재구성
             print("🔄 모델 재구성 중...")
             
-            # DynamicPipelineFactory로 모델 생성 (훈련 시와 동일한 설정)
-            factory = DynamicPipelineFactory()
+            # TunedCLAPPipeline로 모델 생성 (train_accelerate.py와 동일한 설정)
+            # text_encoder_type에 따른 설정
+            text_encoder_config = {}
+            if self.args.text_encoder_type == 'sentence-transformer':
+                text_encoder_config = {'model_name': 'all-mpnet-base-v2'}
             
-            self.model = factory.create_pipeline(
-                encoder_preset=self.args.text_encoder_type,
-                use_clap=True,
-                backbone_type='residual',
-                decoder_type='parallel',
+            self.model = build_tuned_clap_model(
+                text_encoder_type=self.args.text_encoder_type,
+                text_encoder_config=text_encoder_config,
                 sample_rate=self.args.sample_rate,
-                use_differentiable_audio=True,
+                freeze_text_encoder=True,
                 target_params=500000
             )
             
             # 모델을 디바이스로 이동
             self.model = self.model.to(self.device)
             
-            # 상태 딕셔너리 로드
+            # 어댑터 상태 딕셔너리 로드
             try:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                print("✅ 모델 상태 딕셔너리 로드 완료")
-            except Exception as e:
-                print(f"⚠️  모델 상태 딕셔너리 로드 중 오류: {e}")
-                # 부분적 로드 시도
+                # 어댑터 정보 확인
+                adapter_info = checkpoint.get('adapter_info', {})
+                if adapter_info:
+                    print(f"📊 어댑터 체크포인트 정보:")
+                    print(f"   - 어댑터 파라미터: {adapter_info.get('adapter_params', 'N/A')}")
+                    print(f"   - 전체 파라미터: {adapter_info.get('total_params', 'N/A')}")
+                    print(f"   - 훈련 모드: {adapter_info.get('training_mode', 'N/A')}")
+                
+                # 어댑터만 로드 (부분적 로드)
                 model_dict = self.model.state_dict()
-                pretrained_dict = {k: v for k, v in checkpoint['model_state_dict'].items() 
-                                 if k in model_dict and v.size() == model_dict[k].size()}
-                model_dict.update(pretrained_dict)
+                adapter_dict = checkpoint['model_state_dict']
+                
+                # 호환되는 어댑터 파라미터만 필터링
+                loaded_params = {}
+                skipped_params = []
+                
+                for k, v in adapter_dict.items():
+                    if k in model_dict and v.size() == model_dict[k].size():
+                        loaded_params[k] = v
+                    else:
+                        skipped_params.append(k)
+                
+                # 어댑터 파라미터 업데이트
+                model_dict.update(loaded_params)
                 self.model.load_state_dict(model_dict)
-                print(f"✅ 부분적 모델 로드 완료 ({len(pretrained_dict)}/{len(checkpoint['model_state_dict'])} layers)")
+                
+                print(f"✅ 어댑터 로드 완료: {len(loaded_params)}/{len(adapter_dict)} layers")
+                if skipped_params and len(skipped_params) < 5:  # 적은 수의 스킵된 파라미터만 표시
+                    print(f"⚠️  스킵된 파라미터: {skipped_params}")
+                elif skipped_params:
+                    print(f"⚠️  스킵된 파라미터: {len(skipped_params)}개")
+                    
+            except Exception as e:
+                print(f"❌ 어댑터 로드 실패: {e}")
+                # 전체 모델 로드 시도 (fallback)
+                try:
+                    self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+                    print("✅ Fallback: 비엄격 모드로 로드 완료")
+                except Exception as e2:
+                    print(f"❌ Fallback도 실패: {e2}")
+                    raise
             
             # 평가 모드로 설정
             self.model.eval()
@@ -192,8 +222,17 @@ class AudioEffectTester:
         
         try:
             with torch.no_grad():
-                # 텐서를 디바이스로 이동
-                audio_tensor = audio_tensor.to(self.device).unsqueeze(0)  # [1, length]
+                # 텐서를 디바이스로 이동 및 차원 조정
+                audio_tensor = audio_tensor.to(self.device)
+                
+                # TunedCLAPPipeline은 [batch, channels, samples] 형태를 기대
+                if audio_tensor.dim() == 1:  # [samples]
+                    audio_tensor = audio_tensor.unsqueeze(0).unsqueeze(0)  # [1, 1, samples]
+                elif audio_tensor.dim() == 2:  # [1, samples] 또는 [samples, 1]
+                    if audio_tensor.shape[0] == 1:  # [1, samples]
+                        audio_tensor = audio_tensor.unsqueeze(1)  # [1, 1, samples]
+                    else:  # [samples, 1] -> transpose
+                        audio_tensor = audio_tensor.transpose(0, 1).unsqueeze(0)  # [1, 1, samples]
                 
                 # 텍스트 프롬프트를 리스트로 변환 (모델이 List[str]을 기대함)
                 if isinstance(text_prompt, str):
@@ -201,8 +240,8 @@ class AudioEffectTester:
                 else:
                     text_prompts = text_prompt
                 
-                # 모델에 입력 (올바른 순서: texts 먼저, audio 두 번째)
-                result = self.model(texts=text_prompts, audio=audio_tensor, use_real_audio=True)
+                # 모델에 입력 (TunedCLAPPipeline 형식: texts, audio, use_real_audio)
+                result = self.model(texts=text_prompts, audio=audio_tensor, use_real_audio=False)
                 
                 # 결과가 딕셔너리인 경우 processed_audio 키 사용
                 if isinstance(result, dict):
@@ -315,8 +354,8 @@ class AudioEffectTester:
                 "model_info": {
                     "text_encoder": self.args.text_encoder_type,
                     "sample_rate": self.args.sample_rate,
-                    "backbone_type": "residual",
-                    "decoder_type": "parallel"
+                    "model_type": "TunedCLAPPipeline",
+                    "backbone_type": "dual_embedding_with_adapters"
                 },
                 "preset_parameters": preset_dict
             }
@@ -343,53 +382,52 @@ class AudioEffectTester:
             # 1D 배열인 경우
             params = preset_array.tolist()
             
-            # 파라미터 개수에 따라 다르게 파싱
-            if len(params) >= 25:  # 충분한 파라미터가 있는 경우
+            # 파라미터 개수에 따라 다르게 파싱 (28개 파라미터 구조)
+            if len(params) >= 28:  # 28개 파라미터 구조
                 idx = 0
                 
-                # EQ 파라미터 (5 밴드 * 3 파라미터 = 15개)
+                # EQ 파라미터 (5 밴드 * 4 파라미터 = 20개)
+                # frequency, gain, q, filter_type
                 eq_params = {}
+                filter_type_names = {0: "low-shelf", 1: "bell", 2: "high-shelf", 3: "highpass", 4: "lowpass"}
+                
                 for band in range(1, 6):
-                    if idx + 2 < len(params):
+                    if idx + 3 < len(params):
+                        filter_type_val = int(params[idx + 3]) if params[idx + 3] < 5 else 1
                         eq_params[f"band_{band}"] = {
-                            "center_freq": params[idx],
-                            "gain_db": params[idx + 1], 
+                            "frequency": params[idx],
+                            "gain": params[idx + 1], 
                             "q": params[idx + 2],
-                            "filter_type": "bell" if band in [2, 3, 4] else ("high_pass" if band == 1 else "low_pass")
+                            "filter_type": filter_type_names.get(filter_type_val, "bell")
                         }
-                        idx += 3
+                        idx += 4
                 preset_dict["equalizer"] = eq_params
                 
-                # Reverb 파라미터 (6개)
-                if idx + 5 < len(params):
+                # Reverb 파라미터 (5개)
+                if idx + 4 < len(params):
                     preset_dict["reverb"] = {
                         "room_size": params[idx],
                         "pre_delay": params[idx + 1],
                         "diffusion": params[idx + 2],
                         "damping": params[idx + 3],
-                        "wet_gain": params[idx + 4],
-                        "dry_gain": params[idx + 5]
+                        "wet_gain": params[idx + 4]
                     }
-                    idx += 6
+                    idx += 5
                 
-                # Distortion 파라미터 (4개)
-                if idx + 3 < len(params):
+                # Distortion 파라미터 (2개)
+                if idx + 1 < len(params):
                     preset_dict["distortion"] = {
                         "gain": params[idx],
-                        "bias": params[idx + 1],
-                        "tone": params[idx + 2],
-                        "mix": params[idx + 3]
+                        "color": params[idx + 1]
                     }
-                    idx += 4
+                    idx += 2
                 
-                # Pitch 파라미터 (3개)
-                if idx + 2 < len(params):
+                # Pitch 파라미터 (1개)
+                if idx < len(params):
                     preset_dict["pitch"] = {
-                        "pitch_shift": params[idx],
-                        "formant_shift": params[idx + 1],
-                        "mix": params[idx + 2]
+                        "scale": params[idx]
                     }
-                    idx += 3
+                    idx += 1
                 
                 # 나머지 파라미터들
                 for i, param in enumerate(params[idx:], idx):
@@ -547,4 +585,24 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
+    # 사용 예제가 필요한 경우 여기에 추가
+    if len(sys.argv) == 1:
+        print("\n🎵 Audio Effect Model Tester")
+        print("=" * 50)
+        print("사용 예제:")
+        print("python test.py --input_audio sample.wav --text_prompt 'add reverb and distortion'")
+        print("python test.py --input_audio input.wav --text_prompt 'make it sound warmer' --output_path output.wav")
+        print("python test.py --checkpoint_path ./checkpoints/best_model.pt --input_audio test.wav --text_prompt 'boost bass frequencies'")
+        print("\n필수 인자:")
+        print("  --input_audio: 입력 오디오 파일 경로")
+        print("  --text_prompt: 적용할 이펙트 설명")
+        print("\n선택 인자:")
+        print("  --checkpoint_dir: 체크포인트 디렉토리 (기본값: ./checkpoints)")
+        print("  --checkpoint_path: 특정 체크포인트 파일")
+        print("  --output_path: 출력 파일 경로 (지정하지 않으면 자동 생성)")
+        print("  --audio_length: 처리할 오디오 길이 (초)")
+        print("  --device: 사용할 디바이스 (cpu/cuda/auto)")
+        print("\n자세한 옵션은 --help를 참조하세요.")
+        sys.exit(0)
+    
     main()

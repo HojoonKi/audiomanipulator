@@ -254,7 +254,7 @@ class PresetDataset(Dataset):
         self.audio_length = audio_length
         self.use_fine_tuned_presets = use_fine_tuned_presets
         
-        # 악기와 폴더 매핑
+        # 악기와 폴더 매핑 (template.json의 실제 악기명에 맞춤)
         self.instrument_mapping = {
             'electro guitar': 'Electro_Guitar',
             'acoustic guitar': 'Acoustic_Guitar', 
@@ -268,6 +268,9 @@ class PresetDataset(Dataset):
             'saxophone': 'Saxophone',
             'trumpet': 'Trumpet'
         }
+        
+        # template.json에 정의된 사람 주체
+        self.person_subjects = ['male', 'female']
         
         # Fine-tuned presets 로드 (가이드용)
         self.fine_presets = []
@@ -381,25 +384,24 @@ class PresetDataset(Dataset):
     
     
     def _extract_subject_from_description(self, description):
-        """Description에서 주체(악기/사람) 추출"""
+        """Description에서 주체(악기/사람) 추출 - template.json 기반"""
         description_lower = description.lower()
         
-        # 사람 주체 확인
-        if any(word in description_lower for word in ['male', 'female', 'speaks', 'whispers', 'singing', 'says']):
-            if 'male' in description_lower:
-                return 'male', 'speech'
-            elif 'female' in description_lower:
-                return 'female', 'speech'
-            else:
-                return 'neutral', 'speech'
+        # template.json 정의된 사람 주체 확인
+        for person in self.person_subjects:
+            if person in description_lower:
+                # print(f"👤 사람 인식: '{person}' (설명: {description[:50]}...)")
+                return person, 'speech'
         
-        # 악기 주체 확인
-        for instrument, folder in self.instrument_mapping.items():
+        # template.json 정의된 악기 확인
+        for instrument in self.instrument_mapping.keys():
             if instrument in description_lower:
+                # print(f"🎵 악기 인식: '{instrument}' (설명: {description[:50]}...)")
                 return instrument, 'instrumental'
         
-        # 기본값: 피아노
-        return 'piano', 'instrumental'
+        # template.json 범위를 벗어나는 경우 → speech로 처리 (fined_preset 혼재 대응)
+        # print(f"❓ template.json 범위 외 → speech 처리 (설명: {description[:50]}...)")
+        return 'male', 'speech'  # 기본값으로 male speech 사용
     
     def _get_random_audio_file(self, subject, audio_type):
         """주체에 맞는 랜덤 오디오 파일 선택"""
@@ -490,7 +492,7 @@ class PureDescriptionDataset(Dataset):
         self.sample_rate = sample_rate
         self.audio_length = audio_length
         
-        # 악기와 폴더 매핑
+        # 악기와 폴더 매핑 (template.json의 실제 악기명에 맞춤)
         self.instrument_mapping = {
             'electro guitar': 'Electro_Guitar',
             'acoustic guitar': 'Acoustic_Guitar', 
@@ -505,31 +507,33 @@ class PureDescriptionDataset(Dataset):
             'trumpet': 'Trumpet'
         }
         
+        # template.json에 정의된 사람 주체
+        self.person_subjects = ['male', 'female']
+        
         print(f"📊 Pure Description 데이터셋 초기화 완료:")
         print(f"   - Description 수: {len(self.descriptions)}")
         print(f"   - 오디오 길이: {audio_length}초")
         print(f"   - Guide Preset: ❌ 비활성화 (Pure Description Only)")
     
     def _extract_subject_from_description(self, description):
-        """Description에서 주체(악기/사람) 추출"""
+        """Description에서 주체(악기/사람) 추출 - template.json 기반"""
         description_lower = description.lower()
         
-        # 사람 주체 확인
-        if any(word in description_lower for word in ['male', 'female', 'speaks', 'whispers', 'singing', 'says']):
-            if 'male' in description_lower:
-                return 'male', 'speech'
-            elif 'female' in description_lower:
-                return 'female', 'speech'
-            else:
-                return 'neutral', 'speech'
+        # template.json 정의된 사람 주체 확인
+        for person in self.person_subjects:
+            if person in description_lower:
+                # print(f"👤 사람 인식: '{person}' (설명: {description[:50]}...)")
+                return person, 'speech'
         
-        # 악기 주체 확인
-        for instrument, folder in self.instrument_mapping.items():
+        # template.json 정의된 악기 확인
+        for instrument in self.instrument_mapping.keys():
             if instrument in description_lower:
+                # print(f"🎵 악기 인식: '{instrument}' (설명: {description[:50]}...)")
                 return instrument, 'instrumental'
         
-        # 기본값: 피아노
-        return 'piano', 'instrumental'
+        # template.json 범위를 벗어나는 경우 → speech로 처리 (fined_preset 혼재 대응)
+        # print(f"❓ template.json 범위 외 → speech 처리 (설명: {description[:50]}...)")
+        return 'male', 'speech'  # 기본값으로 male speech 사용
     
     def _get_random_audio_file(self, subject, audio_type):
         """주체에 맞는 랜덤 오디오 파일 선택"""
@@ -542,6 +546,7 @@ class PureDescriptionDataset(Dataset):
         if not os.path.exists(folder_path):
             # 대체 폴더 사용
             folder_path = os.path.join(self.audio_dataset_path, 'instrumentals', 'Piano')
+            print(f"⚠️  폴더를 찾을 수 없음: {folder_path}, fallback to Piano")
         
         # WAV, FLAC 파일들 찾기
         audio_files = []

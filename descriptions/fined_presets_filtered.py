@@ -3,6 +3,7 @@
 Filtered audio processing presets dataset with environment-aware reverb.
 Contains 460 presets in standardized format.
 Presets with conflicting reverb/space keywords have been removed.
+EQ frequencies are now sorted in ascending order.
 """
 
 fined_presets = [
@@ -81,11 +82,11 @@ fined_presets = [
     {
         "prompt": "A live violin performance featuring broken effects in an anechoic chamber.",
         "Equalizer": [
+            {"frequency": 60, "gain": -10, "q": 1, "filter_type": "low-shelf"},
             {"frequency": 300, "gain": -5, "q": 1.5, "filter_type": "bell"},
             {"frequency": 1200, "gain": 3, "q": 0.8, "filter_type": "bell"},
             {"frequency": 5000, "gain": 6, "q": 2.5, "filter_type": "bell"},
             {"frequency": 10000, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 60, "gain": -10, "q": 1, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 0.1,
@@ -297,11 +298,11 @@ fined_presets = [
     {
         "prompt": "resonant texture applied to flute in a hospital corridor.",
         "Equalizer": [
+            {"frequency": 100, "gain": -5, "q": 1.0, "filter_type": "low-shelf"},
             {"frequency": 250, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 800, "gain": 3, "q": 1.3, "filter_type": "bell"},
             {"frequency": 2000, "gain": 6, "q": 1.5, "filter_type": "bell"},
             {"frequency": 6000, "gain": 4, "q": 1.7, "filter_type": "bell"},
-            {"frequency": 100, "gain": -5, "q": 1.0, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 2.8,
@@ -7857,11 +7858,11 @@ fined_presets = [
     {
         "prompt": "Recording of saxophone with breathy processing in a museum",
         "Equalizer": [
-            {"frequency": 20000, "gain": -5, "q": 1.2, "filter_type": "high-shelf"},
-            {"frequency": 5000, "gain": 3, "q": 1.5, "filter_type": "bell"},
+            {"frequency": 80, "gain": 4, "q": 1.0, "filter_type": "low-shelf"},
             {"frequency": 250, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 1000, "gain": -3, "q": 0.8, "filter_type": "notch"},
-            {"frequency": 80, "gain": 4, "q": 1.0, "filter_type": "low-shelf"},
+            {"frequency": 5000, "gain": 3, "q": 1.5, "filter_type": "bell"},
+            {"frequency": 20000, "gain": -5, "q": 1.2, "filter_type": "high-shelf"},
         ],
         "Reverb": {
             "room_size": 7,
@@ -7881,11 +7882,11 @@ fined_presets = [
     {
         "prompt": "piano treated with cold effect as if in an auditorium",
         "Equalizer": [
-            {"frequency": 18000, "gain": 6, "q": 1.3, "filter_type": "high-shelf"},
-            {"frequency": 4000, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 600, "gain": -2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 150, "gain": -1, "q": 1.5, "filter_type": "low-shelf"},
             {"frequency": 250, "gain": -4, "q": 0.7, "filter_type": "notch"},
+            {"frequency": 600, "gain": -2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 4, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 18000, "gain": 6, "q": 1.3, "filter_type": "high-shelf"},
         ],
         "Reverb": {
             "room_size": 8,
@@ -7905,11 +7906,11 @@ fined_presets = [
     {
         "prompt": "A trumpet layered with crystal clear in the valley",
         "Equalizer": [
-            {"frequency": 16000, "gain": 5, "q": 1.1, "filter_type": "high-shelf"},
-            {"frequency": 5000, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 800, "gain": -2, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 200, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 50, "gain": -3, "q": 0.8, "filter_type": "low-shelf"},
+            {"frequency": 200, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 800, "gain": -2, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 16000, "gain": 5, "q": 1.1, "filter_type": "high-shelf"},
         ],
         "Reverb": {
             "room_size": 3.0,
@@ -7930,10 +7931,10 @@ fined_presets = [
         "prompt": "Simulate the acoustic environment of a parking garage with alien effects",
         "Equalizer": [
             {"frequency": 180, "gain": 5, "q": 1.5, "filter_type": "bell"},
+            {"frequency": 300, "gain": -3, "q": 1.2, "filter_type": "low-shelf"},
             {"frequency": 1000, "gain": -5, "q": 0.7, "filter_type": "notch"},
             {"frequency": 4000, "gain": 5, "q": 1.0, "filter_type": "bell"},
             {"frequency": 8000, "gain": 7, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 300, "gain": -3, "q": 1.2, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 2.2,
@@ -7953,11 +7954,11 @@ fined_presets = [
     {
         "prompt": "Make the female sound lo-fi in the cave",
         "Equalizer": [
-            {"frequency": 4000, "gain": -7, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 80, "gain": 4, "q": 0.9, "filter_type": "low-shelf"},
             {"frequency": 150, "gain": 5, "q": 1.1, "filter_type": "low-shelf"},
             {"frequency": 1000, "gain": -4, "q": 1.5, "filter_type": "notch"},
+            {"frequency": 4000, "gain": -7, "q": 1.0, "filter_type": "bell"},
             {"frequency": 6000, "gain": -10, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 80, "gain": 4, "q": 0.9, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 5.0,
@@ -8073,10 +8074,10 @@ fined_presets = [
     {
         "prompt": "electro guitar played in the bamboo grove with a percussive sound",
         "Equalizer": [
-            {"frequency": 3000, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 6000, "gain": 4, "q": 1.3, "filter_type": "bell"},
             {"frequency": 150, "gain": -2, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 5, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 6000, "gain": 4, "q": 1.3, "filter_type": "bell"},
             {"frequency": 10000, "gain": 2, "q": 1.5, "filter_type": "high-shelf"},
         ],
         "Reverb": {
@@ -8097,10 +8098,10 @@ fined_presets = [
     {
         "prompt": "glassy shimmer texture applied to keyboard in a stadium",
         "Equalizer": [
+            {"frequency": 400, "gain": -3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 8000, "gain": 7, "q": 1.2, "filter_type": "bell"},
             {"frequency": 12000, "gain": 6, "q": 1.0, "filter_type": "high-shelf"},
-            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 400, "gain": -3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 15000, "gain": 8, "q": 1.5, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8121,11 +8122,11 @@ fined_presets = [
     {
         "prompt": "Make the electro guitar sound breathy and reverberant in the nightclub",
         "Equalizer": [
-            {"frequency": 4000, "gain": 4, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 1200, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 7000, "gain": -3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 250, "gain": 3, "q": 0.9, "filter_type": "low-shelf"},
+            {"frequency": 1200, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 4, "q": 1.3, "filter_type": "bell"},
             {"frequency": 6000, "gain": 3, "q": 1.5, "filter_type": "bell"},
+            {"frequency": 7000, "gain": -3, "q": 1.2, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 6,
@@ -8147,8 +8148,8 @@ fined_presets = [
         "Equalizer": [
             {"frequency": 80, "gain": 4, "q": 1.0, "filter_type": "low-shelf"},
             {"frequency": 200, "gain": 2, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 500, "gain": -2, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 5000, "gain": 4, "q": 1.5, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8170,9 +8171,9 @@ fined_presets = [
         "prompt": "organ treated with granular effect as if in a cave",
         "Equalizer": [
             {"frequency": 120, "gain": 5, "q": 1.1, "filter_type": "low-shelf"},
+            {"frequency": 400, "gain": -3, "q": 0.9, "filter_type": "notch"},
             {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 400, "gain": -3, "q": 0.9, "filter_type": "notch"},
             {"frequency": 6000, "gain": 2, "q": 1.4, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8313,11 +8314,11 @@ fined_presets = [
     {
         "prompt": "Simulate the acoustic environment of a gymnasium with overdriven effects",
         "Equalizer": [
+            {"frequency": 80, "gain": 2, "q": 1.1, "filter_type": "low-shelf"},
             {"frequency": 200, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 1000, "gain": -3, "q": 0.8, "filter_type": "notch"},
             {"frequency": 3000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 3, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 80, "gain": 2, "q": 1.1, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 9,
@@ -8338,8 +8339,8 @@ fined_presets = [
         "prompt": "Environmental sound with acoustic characteristics in an underground tunnel",
         "Equalizer": [
             {"frequency": 150, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 800, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 300, "gain": -2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 800, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 4000, "gain": 2, "q": 1.1, "filter_type": "bell"},
             {"frequency": 8000, "gain": -4, "q": 1.0, "filter_type": "bell"},
         ],
@@ -8361,10 +8362,10 @@ fined_presets = [
     {
         "prompt": "percussive texture applied to drum set in a silo",
         "Equalizer": [
-            {"frequency": 2500, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 100, "gain": 4, "q": 1.0, "filter_type": "low-shelf"},
-            {"frequency": 5000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 400, "gain": -3, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 6, "q": 1.3, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 3, "q": 1.4, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8385,10 +8386,10 @@ fined_presets = [
     {
         "prompt": "A female says something detuned in the basement",
         "Equalizer": [
-            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 4000, "gain": -2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 200, "gain": 1, "q": 0.9, "filter_type": "low-shelf"},
+            {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 4000, "gain": -2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 1, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8409,10 +8410,10 @@ fined_presets = [
     {
         "prompt": "Make the male sound dry in the nightclub",
         "Equalizer": [
-            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 200, "gain": 2, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 3000, "gain": 2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 500, "gain": -2, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 5000, "gain": 1, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8553,11 +8554,11 @@ fined_presets = [
     {
         "prompt": "An ambient ambient saxophone heard in an airplane cabin",
         "Equalizer": [
+            {"frequency": 150, "gain": 1, "q": 1.1, "filter_type": "low-shelf"},
+            {"frequency": 500, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1200, "gain": -1, "q": 0.8, "filter_type": "bell"},
             {"frequency": 3000, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 8000, "gain": -3, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 500, "gain": 3, "q": 0.9, "filter_type": "bell"},
-            {"frequency": 150, "gain": 1, "q": 1.1, "filter_type": "low-shelf"},
-            {"frequency": 1200, "gain": -1, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 1.8,
@@ -8601,10 +8602,10 @@ fined_presets = [
     {
         "prompt": "Sound of acoustic guitar made wet inside a silo",
         "Equalizer": [
-            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 100, "gain": 2, "q": 1.0, "filter_type": "low-shelf"},
-            {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 400, "gain": -2, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 2, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8625,11 +8626,11 @@ fined_presets = [
     {
         "prompt": "nostalgic texture applied to electro guitar in a bathroom",
         "Equalizer": [
-            {"frequency": 1000, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 6000, "gain": -4, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
-            {"frequency": 4000, "gain": 1, "q": 1.2, "filter_type": "bell"},
             {"frequency": 150, "gain": 2, "q": 1.0, "filter_type": "low-shelf"},
+            {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 1, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 6000, "gain": -4, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 2,
@@ -8649,11 +8650,11 @@ fined_presets = [
     {
         "prompt": "Recording of keyboard with fuzzed processing in a subway tunnel",
         "Equalizer": [
-            {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 5000, "gain": 5, "q": 1.1, "filter_type": "bell"},
             {"frequency": 200, "gain": 2, "q": 0.9, "filter_type": "low-shelf"},
+            {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 1200, "gain": -2, "q": 0.8, "filter_type": "notch"},
+            {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 5, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 8,
@@ -8793,11 +8794,11 @@ fined_presets = [
     {
         "prompt": "A recording of a male with a metallic character in the observatory dome",
         "Equalizer": [
+            {"frequency": 300, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 4000, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 8000, "gain": 6, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 300, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 6000, "gain": 4, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 8000, "gain": 6, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 9,
@@ -8817,11 +8818,11 @@ fined_presets = [
     {
         "prompt": "hazy texture applied to electro guitar in an empty room",
         "Equalizer": [
+            {"frequency": 400, "gain": 1, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 800, "gain": 3, "q": 0.9, "filter_type": "bell"},
             {"frequency": 2000, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 6000, "gain": -3, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 800, "gain": 3, "q": 0.9, "filter_type": "bell"},
             {"frequency": 10000, "gain": -5, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 400, "gain": 1, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 5,
@@ -8841,10 +8842,10 @@ fined_presets = [
     {
         "prompt": "A live piano performance featuring echoing effects in a power plant",
         "Equalizer": [
-            {"frequency": 2500, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 100, "gain": 2, "q": 1.0, "filter_type": "low-shelf"},
-            {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 1200, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 3, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -8865,11 +8866,11 @@ fined_presets = [
     {
         "prompt": "A male speaks in a swamp",
         "Equalizer": [
-            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 150, "gain": 1, "q": 1.0, "filter_type": "low-shelf"},
             {"frequency": 300, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 3000, "gain": 1, "q": 1.1, "filter_type": "bell"},
             {"frequency": 6000, "gain": -2, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 150, "gain": 1, "q": 1.0, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 0.8,
@@ -8889,10 +8890,10 @@ fined_presets = [
     {
         "prompt": "A crystal clear performance of keyboard in a server room",
         "Equalizer": [
+            {"frequency": 500, "gain": 1, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 3000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 5, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 500, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 12000, "gain": 6, "q": 1.4, "filter_type": "high-shelf"},
         ],
         "Reverb": {
@@ -9033,10 +9034,10 @@ fined_presets = [
     {
         "prompt": "Sound of keyboard made robotic inside a train yard",
         "Equalizer": [
-            {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 1200, "gain": -2, "q": 0.8, "filter_type": "notch"},
+            {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 8000, "gain": 5, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9057,11 +9058,11 @@ fined_presets = [
     {
         "prompt": "Make the flute sound hazy and reverberant in the wine cellar",
         "Equalizer": [
+            {"frequency": 400, "gain": 1, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 3000, "gain": 1, "q": 1.0, "filter_type": "bell"},
             {"frequency": 6000, "gain": -4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 8000, "gain": -6, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 400, "gain": 1, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 2.5,
@@ -9081,11 +9082,11 @@ fined_presets = [
     {
         "prompt": "Recording of saxophone with glowing processing in a rocky shore",
         "Equalizer": [
+            {"frequency": 300, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 4000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 6, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 10000, "gain": 4, "q": 1.3, "filter_type": "high-shelf"},
-            {"frequency": 300, "gain": 2, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 1.5,
@@ -9105,11 +9106,11 @@ fined_presets = [
     {
         "prompt": "trumpet treated with distant effect as if in a power plant",
         "Equalizer": [
+            {"frequency": 400, "gain": 2, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 800, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 2000, "gain": -2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 5000, "gain": -3, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 800, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 8000, "gain": -5, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 400, "gain": 2, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 7.5,
@@ -9129,10 +9130,10 @@ fined_presets = [
     {
         "prompt": "Sound of drum set made plucky inside a cafeteria",
         "Equalizer": [
+            {"frequency": 200, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 3000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 5000, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 200, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 8000, "gain": 4, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9297,11 +9298,11 @@ fined_presets = [
     {
         "prompt": "Recording of acoustic guitar with pulsing processing in a conference room",
         "Equalizer": [
-            {"frequency": 2000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 100, "gain": 2, "q": 1.0, "filter_type": "low-shelf"},
-            {"frequency": 5000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 800, "gain": 1, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 3500, "gain": 5, "q": 1.3, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 3, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 4,
@@ -9321,10 +9322,10 @@ fined_presets = [
     {
         "prompt": "A recording of a male with an echoing character in the large hall",
         "Equalizer": [
-            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 300, "gain": 2, "q": 0.9, "filter_type": "bell"},
-            {"frequency": 3000, "gain": 4, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2000, "gain": 2, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 5000, "gain": 3, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9345,10 +9346,10 @@ fined_presets = [
     {
         "prompt": "A tape-saturated performance of violin in a rocky shore",
         "Equalizer": [
-            {"frequency": 3000, "gain": 3, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 500, "gain": 1, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": -2, "q": 1.0, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9369,10 +9370,10 @@ fined_presets = [
     {
         "prompt": "A saxophone layered with stretched in the church",
         "Equalizer": [
-            {"frequency": 2500, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 4000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 1500, "gain": 1, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 3, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9513,11 +9514,11 @@ fined_presets = [
     {
         "prompt": "Make the male sound compressed air in the rocky shore",
         "Equalizer": [
+            {"frequency": 300, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 1000, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 4000, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 8000, "gain": 6, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 300, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 6000, "gain": 4, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 8000, "gain": 6, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 1.5,
@@ -9537,11 +9538,11 @@ fined_presets = [
     {
         "prompt": "violin played in the library with a ring-modulated sound",
         "Equalizer": [
-            {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 1000, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 8000, "gain": 5, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 3500, "gain": 3, "q": 1.4, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
+            {"frequency": 8000, "gain": 5, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 5,
@@ -9562,10 +9563,10 @@ fined_presets = [
         "prompt": "A organ layered with expanded in the subway platform",
         "Equalizer": [
             {"frequency": 120, "gain": 5, "q": 1.1, "filter_type": "low-shelf"},
+            {"frequency": 400, "gain": -2, "q": 0.9, "filter_type": "notch"},
             {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 5000, "gain": 3, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 400, "gain": -2, "q": 0.9, "filter_type": "notch"},
         ],
         "Reverb": {
             "room_size": 8,
@@ -9586,10 +9587,10 @@ fined_presets = [
         "prompt": "Make the organ sound spacey and reverberant in the canyon",
         "Equalizer": [
             {"frequency": 150, "gain": 4, "q": 1.0, "filter_type": "low-shelf"},
+            {"frequency": 500, "gain": -1, "q": 0.8, "filter_type": "bell"},
             {"frequency": 1000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 3000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 4, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 500, "gain": -1, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 10,
@@ -9609,11 +9610,11 @@ fined_presets = [
     {
         "prompt": "Environmental sound with lo-fi characteristics in an opera house",
         "Equalizer": [
-            {"frequency": 4000, "gain": -6, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 8000, "gain": -8, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
             {"frequency": 150, "gain": 2, "q": 1.0, "filter_type": "low-shelf"},
+            {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 4000, "gain": -6, "q": 1.1, "filter_type": "bell"},
             {"frequency": 6000, "gain": -5, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 8000, "gain": -8, "q": 1.2, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 8.5,
@@ -9753,11 +9754,11 @@ fined_presets = [
     {
         "prompt": "Pure sparkling effect reminiscent of a stairwell",
         "Equalizer": [
+            {"frequency": 2000, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 8000, "gain": 8, "q": 1.2, "filter_type": "bell"},
             {"frequency": 12000, "gain": 7, "q": 1.1, "filter_type": "high-shelf"},
-            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 15000, "gain": 6, "q": 1.4, "filter_type": "bell"},
-            {"frequency": 2000, "gain": 2, "q": 1.0, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 6,
@@ -9777,10 +9778,10 @@ fined_presets = [
     {
         "prompt": "Make the electro guitar sound buzzy and reverberant in the laboratory",
         "Equalizer": [
-            {"frequency": 2500, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 4000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 500, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 5, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 6000, "gain": 3, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9801,11 +9802,11 @@ fined_presets = [
     {
         "prompt": "A female speaks in a stairwell",
         "Equalizer": [
-            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 400, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 3500, "gain": 2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 5000, "gain": 1, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 400, "gain": 1, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 6,
@@ -9825,11 +9826,11 @@ fined_presets = [
     {
         "prompt": "violin treated with sparkling effect as if in a desert",
         "Equalizer": [
-            {"frequency": 3000, "gain": 4, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 8000, "gain": 7, "q": 1.2, "filter_type": "bell"},
             {"frequency": 1500, "gain": 2, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 12000, "gain": 6, "q": 1.3, "filter_type": "high-shelf"},
+            {"frequency": 3000, "gain": 4, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 5, "q": 1.4, "filter_type": "bell"},
+            {"frequency": 8000, "gain": 7, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 12000, "gain": 6, "q": 1.3, "filter_type": "high-shelf"},
         ],
         "Reverb": {
             "room_size": 0.2,
@@ -9849,10 +9850,10 @@ fined_presets = [
     {
         "prompt": "A female speaks in a stadium",
         "Equalizer": [
-            {"frequency": 2000, "gain": 4, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 3500, "gain": 3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 500, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 4, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 3500, "gain": 3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 5000, "gain": 2, "q": 1.0, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -9993,10 +9994,10 @@ fined_presets = [
     {
         "prompt": "The aura of crystal clear in the nightclub",
         "Equalizer": [
+            {"frequency": 2000, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 8000, "gain": 8, "q": 1.2, "filter_type": "bell"},
             {"frequency": 12000, "gain": 7, "q": 1.1, "filter_type": "high-shelf"},
-            {"frequency": 5000, "gain": 6, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 2000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 15000, "gain": 8, "q": 1.4, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -10017,10 +10018,10 @@ fined_presets = [
     {
         "prompt": "Make the acoustic guitar sound fuzzed and reverberant in the conference center",
         "Equalizer": [
-            {"frequency": 2000, "gain": 4, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 4000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 1200, "gain": -2, "q": 0.8, "filter_type": "notch"},
+            {"frequency": 2000, "gain": 4, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 6, "q": 1.3, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -10041,11 +10042,11 @@ fined_presets = [
     {
         "prompt": "A gated performance of violin in a classroom",
         "Equalizer": [
-            {"frequency": 3000, "gain": 4, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 800, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 4, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 3, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 800, "gain": 2, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 4,
@@ -10065,9 +10066,9 @@ fined_presets = [
     {
         "prompt": "violin treated with broken effect as if in a busy intersection",
         "Equalizer": [
+            {"frequency": 1000, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 2500, "gain": 3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 4000, "gain": -3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 6000, "gain": 4, "q": 1.3, "filter_type": "bell"},
             {"frequency": 8000, "gain": -2, "q": 1.1, "filter_type": "bell"},
         ],
@@ -10209,11 +10210,11 @@ fined_presets = [
     {
         "prompt": "violin played in the cave with a pitch-shifted up sound",
         "Equalizer": [
-            {"frequency": 3000, "gain": 4, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 800, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 4, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 3, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 800, "gain": 2, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 5.0,
@@ -10233,10 +10234,10 @@ fined_presets = [
     {
         "prompt": "Make the drum set sound granular and reverberant in the oil refinery",
         "Equalizer": [
-            {"frequency": 2500, "gain": 6, "q": 1.2, "filter_type": "bell"},
             {"frequency": 100, "gain": 4, "q": 1.0, "filter_type": "low-shelf"},
-            {"frequency": 5000, "gain": 5, "q": 1.3, "filter_type": "bell"},
             {"frequency": 800, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 6, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 5, "q": 1.3, "filter_type": "bell"},
             {"frequency": 8000, "gain": 4, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -10257,10 +10258,10 @@ fined_presets = [
     {
         "prompt": "drum set played in the beach with an acoustic sound",
         "Equalizer": [
-            {"frequency": 2500, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 100, "gain": 3, "q": 1.0, "filter_type": "low-shelf"},
-            {"frequency": 5000, "gain": 2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 800, "gain": 2, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 1, "q": 1.0, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -10449,11 +10450,11 @@ fined_presets = [
     {
         "prompt": "bass guitar played in the cafeteria with an octave-up sound",
         "Equalizer": [
+            {"frequency": 80, "gain": -2, "q": 0.9, "filter_type": "low-shelf"},
             {"frequency": 160, "gain": 5, "q": 1.0, "filter_type": "bell"},
             {"frequency": 400, "gain": 4, "q": 1.1, "filter_type": "bell"},
             {"frequency": 1000, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2500, "gain": 2, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 80, "gain": -2, "q": 0.9, "filter_type": "low-shelf"},
         ],
         "Reverb": {
             "room_size": 5,
@@ -10473,11 +10474,11 @@ fined_presets = [
     {
         "prompt": "keyboard played in the living room with a noisy sound",
         "Equalizer": [
+            {"frequency": 300, "gain": 1, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 800, "gain": 2, "q": 1.0, "filter_type": "bell"},
             {"frequency": 8000, "gain": 5, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 300, "gain": 1, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 1.8,
@@ -10497,10 +10498,10 @@ fined_presets = [
     {
         "prompt": "A fuzzed performance of electro guitar in an oil refinery",
         "Equalizer": [
-            {"frequency": 2500, "gain": 5, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 4000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 500, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 5, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 4000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 6000, "gain": 5, "q": 1.1, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -10521,11 +10522,11 @@ fined_presets = [
     {
         "prompt": "A flute layered with stretched in the power plant",
         "Equalizer": [
-            {"frequency": 3000, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 1, "q": 0.9, "filter_type": "bell"},
             {"frequency": 1500, "gain": 2, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 3, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 3, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 1, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 7.5,
@@ -10545,11 +10546,11 @@ fined_presets = [
     {
         "prompt": "A plucky performance of flute in a lighthouse",
         "Equalizer": [
-            {"frequency": 3000, "gain": 6, "q": 1.3, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 2, "q": 0.9, "filter_type": "bell"},
             {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 5000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 8000, "gain": 4, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 1000, "gain": 2, "q": 0.9, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 3.5,
@@ -10689,11 +10690,11 @@ fined_presets = [
     {
         "prompt": "A male whispers in the airport terminal",
         "Equalizer": [
-            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 500, "gain": 2, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 3000, "gain": 5, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 6, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 500, "gain": 2, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 9,
@@ -10714,10 +10715,10 @@ fined_presets = [
         "prompt": "organ played in the ship deck with a sidechained sound",
         "Equalizer": [
             {"frequency": 120, "gain": 5, "q": 1.1, "filter_type": "low-shelf"},
+            {"frequency": 400, "gain": -2, "q": 0.9, "filter_type": "notch"},
             {"frequency": 800, "gain": 3, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2000, "gain": 4, "q": 1.2, "filter_type": "bell"},
             {"frequency": 4000, "gain": 2, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 400, "gain": -2, "q": 0.9, "filter_type": "notch"},
         ],
         "Reverb": {
             "room_size": 3.0,
@@ -10737,11 +10738,11 @@ fined_presets = [
     {
         "prompt": "Sound of violin made crystal clear inside a planetarium",
         "Equalizer": [
-            {"frequency": 3000, "gain": 5, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 8000, "gain": 7, "q": 1.2, "filter_type": "bell"},
             {"frequency": 1500, "gain": 3, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 12000, "gain": 6, "q": 1.3, "filter_type": "high-shelf"},
+            {"frequency": 3000, "gain": 5, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 4, "q": 1.4, "filter_type": "bell"},
+            {"frequency": 8000, "gain": 7, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 12000, "gain": 6, "q": 1.3, "filter_type": "high-shelf"},
         ],
         "Reverb": {
             "room_size": 9,
@@ -10761,11 +10762,11 @@ fined_presets = [
     {
         "prompt": "An ambient sparkling drum set heard in a cliff edge",
         "Equalizer": [
-            {"frequency": 3000, "gain": 2, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 8000, "gain": 6, "q": 1.2, "filter_type": "bell"},
             {"frequency": 200, "gain": 1, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 12000, "gain": 5, "q": 1.3, "filter_type": "high-shelf"},
+            {"frequency": 3000, "gain": 2, "q": 1.1, "filter_type": "bell"},
             {"frequency": 5000, "gain": 4, "q": 1.4, "filter_type": "bell"},
+            {"frequency": 8000, "gain": 6, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 12000, "gain": 5, "q": 1.3, "filter_type": "high-shelf"},
         ],
         "Reverb": {
             "room_size": 2.0,
@@ -10785,10 +10786,10 @@ fined_presets = [
     {
         "prompt": "A female says something smoky in the bathroom",
         "Equalizer": [
-            {"frequency": 2000, "gain": 2, "q": 1.1, "filter_type": "bell"},
-            {"frequency": 800, "gain": 4, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 4000, "gain": -2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 800, "gain": 4, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2000, "gain": 2, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 4000, "gain": -2, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": -3, "q": 1.0, "filter_type": "bell"},
         ],
         "Reverb": {
@@ -10929,10 +10930,10 @@ fined_presets = [
     {
         "prompt": "A cloudy performance of electro guitar in a restaurant",
         "Equalizer": [
+            {"frequency": 150, "gain": 3, "q": 1.1, "filter_type": "low-shelf"},
+            {"frequency": 800, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2000, "gain": -3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 5000, "gain": -5, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 800, "gain": 4, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 150, "gain": 3, "q": 1.1, "filter_type": "low-shelf"},
             {"frequency": 12000, "gain": -4, "q": 1.4, "filter_type": "high-shelf"},
         ],
         "Reverb": {
@@ -10953,10 +10954,10 @@ fined_presets = [
     {
         "prompt": "A piano layered with alien in the shopping mall",
         "Equalizer": [
-            {"frequency": 3000, "gain": 4, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 7000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 150, "gain": -2, "q": 1.0, "filter_type": "low-shelf"},
             {"frequency": 500, "gain": 3, "q": 1.1, "filter_type": "bell"},
+            {"frequency": 3000, "gain": 4, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 7000, "gain": 6, "q": 1.3, "filter_type": "bell"},
             {"frequency": 10000, "gain": 5, "q": 1.4, "filter_type": "high-shelf"},
         ],
         "Reverb": {
@@ -11001,11 +11002,11 @@ fined_presets = [
     {
         "prompt": "A female speaks in a hangar",
         "Equalizer": [
-            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 300, "gain": 3, "q": 0.9, "filter_type": "bell"},
+            {"frequency": 400, "gain": 1, "q": 0.8, "filter_type": "bell"},
+            {"frequency": 1000, "gain": 4, "q": 1.0, "filter_type": "bell"},
             {"frequency": 2500, "gain": 3, "q": 1.2, "filter_type": "bell"},
             {"frequency": 6000, "gain": 2, "q": 1.3, "filter_type": "bell"},
-            {"frequency": 400, "gain": 1, "q": 0.8, "filter_type": "bell"},
         ],
         "Reverb": {
             "room_size": 9,
@@ -11025,10 +11026,10 @@ fined_presets = [
     {
         "prompt": "Sound ",
         "Equalizer": [
-            {"frequency": 2500, "gain": 5.0, "q": 1.2, "filter_type": "bell"},
-            {"frequency": 800, "gain": 3.0, "q": 1.0, "filter_type": "bell"},
-            {"frequency": 5000, "gain": 6.0, "q": 1.3, "filter_type": "bell"},
             {"frequency": 400, "gain": -2.0, "q": 0.9, "filter_type": "notch"},
+            {"frequency": 800, "gain": 3.0, "q": 1.0, "filter_type": "bell"},
+            {"frequency": 2500, "gain": 5.0, "q": 1.2, "filter_type": "bell"},
+            {"frequency": 5000, "gain": 6.0, "q": 1.3, "filter_type": "bell"},
             {"frequency": 12000, "gain": 4.0, "q": 1.4, "filter_type": "high-shelf"},
         ],
         "Reverb": {

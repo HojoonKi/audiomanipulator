@@ -127,8 +127,28 @@ class CLAPTextEncoder(nn.Module):
         self.freeze_model = freeze_model
         
         # --- 1. 모델 및 프로세서 로드 ---
-        self.clap_model = ClapModel.from_pretrained(model_name, use_safetensors=True)
-        self.clap_processor = ClapProcessor.from_pretrained(model_name)
+        try:
+            # 캐시된 모델 사용 시도 (오프라인 모드)
+            self.clap_model = ClapModel.from_pretrained(
+                model_name, 
+                use_safetensors=True,
+                local_files_only=True
+            )
+            self.clap_processor = ClapProcessor.from_pretrained(
+                model_name,
+                local_files_only=True
+            )
+            print(f"✅ CLAP 모델을 캐시에서 로드했습니다: {model_name}")
+        except Exception as cache_error:
+            print(f"⚠️ 캐시에서 로드 실패, 온라인에서 다시 시도: {cache_error}")
+            try:
+                # 온라인에서 다시 시도 (safetensors 없이)
+                self.clap_model = ClapModel.from_pretrained(model_name)
+                self.clap_processor = ClapProcessor.from_pretrained(model_name)
+                print(f"✅ CLAP 모델을 온라인에서 로드했습니다: {model_name}")
+            except Exception as online_error:
+                print(f"❌ CLAP 모델 로드 완전 실패: {online_error}")
+                raise online_error
         
         # --- 2. 모델 고정(Freeze) 및 평가 모드(eval) 설정 ---
         if self.freeze_model:
@@ -164,7 +184,7 @@ class CLAPTextEncoder(nn.Module):
         self.resampler.to(device)
         self.mel_spectrogram_converter.to(device)
         return self
-
+    
     def get_text_embedding(self, text_prompts: Union[str, List[str]]) -> torch.Tensor:
         """텍스트 임베딩 추출"""
         if isinstance(text_prompts, str):
