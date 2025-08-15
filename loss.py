@@ -9,11 +9,43 @@ This module contains all loss functions used in the audio manipulation training 
 - Frequency regularization losses
 """
 
+import traceback
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import List, Dict
+import os
+
+
+def _should_debug_loss() -> bool:
+    try:
+        return os.getenv("DEBUG_LOSS", "0") == "1"
+    except Exception:
+        return False
+
+
+def _debug_loss_print(message: str) -> None:
+    if _should_debug_loss():
+        try:
+            print(message)
+        except Exception:
+            pass
+
+
+def _tensor_stats_brief(name: str, tensor: torch.Tensor) -> None:
+    if not _should_debug_loss():
+        return
+    try:
+        shape = tuple(tensor.shape)
+        dtype = str(tensor.dtype)
+        device = str(tensor.device)
+        tmin = float(torch.min(tensor).item()) if tensor.numel() > 0 else float('nan')
+        tmax = float(torch.max(tensor).item()) if tensor.numel() > 0 else float('nan')
+        tmean = float(torch.mean(tensor).item()) if tensor.numel() > 0 else float('nan')
+        _debug_loss_print(f"[LOSS-DEBUG] {name}: shape={shape}, dtype={dtype}, device={device}, min={tmin:.4f}, max={tmax:.4f}, mean={tmean:.4f}")
+    except Exception as e:
+        _debug_loss_print(f"[LOSS-DEBUG] {name}: stats failed: {e}")
 
 
 def compute_self_supervised_clap_loss(
@@ -45,17 +77,40 @@ def compute_self_supervised_clap_loss(
             outputs = fx_model(texts=fx_texts, audio=original_audios, use_real_audio=False)
             predicted_audios = outputs['processed_audio']
 
-        # 2. 오디오 차원 조정 (CLAP은 모노 오디오 처리) - gradient 유지
-        if predicted_audios.dim() == 3:  # (batch, channels, samples)
-            if predicted_audios.size(1) > 1:  # 스테레오를 모노로 변환
-                predicted_audios_mono = predicted_audios.mean(dim=1)  # (batch, samples)
-            else:
-                predicted_audios_mono = predicted_audios.squeeze(1)  # (batch, samples)
-        elif predicted_audios.dim() == 2:  # (batch, samples) - 이미 올바른 형태
-            predicted_audios_mono = predicted_audios
-        else:  # (samples,) - 단일 오디오
-            predicted_audios_mono = predicted_audios.unsqueeze(0)  # (1, samples)
+        # 2. 오디오 차원 정규화: 최종적으로 (batch, samples)
+        x = predicted_audios
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+        if x.dim() >= 3:
+            # 마지막 축은 samples로 유지하고, 중간 축(채널/불필요 차원)은 평균으로 모노화
+            reduce_dims = list(range(1, x.dim() - 1))
+            if len(reduce_dims) > 0:
+                x = x.mean(dim=reduce_dims)
+        predicted_audios_mono = x  # (batch, samples)
+        if _should_debug_loss():
+            _tensor_stats_brief("predicted_audios_mono.after_reduce", predicted_audios_mono)
+
+        # 텍스트 길이를 배치 크기에 맞춤 (필요 시 반복/자름)
+        try:
+            B = predicted_audios_mono.size(0)
+            if isinstance(fx_texts, list) and len(fx_texts) != B:
+                if len(fx_texts) == 0:
+                    fx_texts = ["Apply audio effect"] * B
+                else:
+                    reps = (B + len(fx_texts) - 1) // len(fx_texts)
+                    fx_texts = (fx_texts * reps)[:B]
+        except Exception:
+            pass
         
+        # 디버그: 텐서 디바이스/형상 출력
+        if _should_debug_loss():
+            _tensor_stats_brief("predicted_audios_mono", predicted_audios_mono)
+            try:
+                ref_param = next(clap_model.parameters())
+                _debug_loss_print(f"[LOSS-DEBUG] clap_model.param_device={ref_param.device}")
+            except Exception:
+                pass
+
         # 3. 업데이트된 CLAPTextEncoder의 compute_clap_loss 메서드 직접 사용
         # 이 메서드는 내부적으로 gradient flow가 보장된 방식으로 구현되어 있음
         loss = clap_model.compute_clap_loss(predicted_audios_mono, fx_texts)
@@ -145,12 +200,17 @@ def compute_guide_loss(model, generated_preset, guide_preset, device):
                 generated_tensor = generated_tensor.squeeze(0)
             
             # 단일 샘플을 배치 형태로 변환하여 정규화 함수 재사용
-            generated_batch = generated_tensor.unsqueeze(0)  # [1, 28]
-            guide_batch = guide_tensor.unsqueeze(0)  # [1, 28]
+            generated_batch = generated_tensor.unsqueeze(0)
+            guide_batch = guide_tensor.unsqueeze(0)
+
+            # 길이 불일치 대비: 공통 최소 차원으로 정렬 (pitch 제거 호환)
+            min_dim = min(generated_batch.shape[-1], guide_batch.shape[-1])
+            generated_batch = generated_batch[..., :min_dim]
+            guide_batch = guide_batch[..., :min_dim]
             
             # 파라미터별 정규화 적용
             normalized_generated, normalized_guide = _normalize_parameters_for_loss(
-                generated_batch, guide_batch
+                generated_batch.to(device), guide_batch.to(device)
             )
             
             # 가중치 기반 MSE loss 계산
@@ -183,11 +243,16 @@ def compute_batch_guide_loss(model, batch_generated_preset, batch_guide_presets,
                 batch_guide_values.append(guide_values)
             
             # Guide values를 배치 텐서로 스택
-            guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(device)  # [batch_size, 28]
+            guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(device)
+
+            # 길이 불일치 대비: 공통 최소 차원으로 정렬 (pitch 제거 호환)
+            min_dim = min(generated_batch_tensor.shape[-1], guide_batch_tensor.shape[-1])
+            generated_batch_tensor = generated_batch_tensor[..., :min_dim]
+            guide_batch_tensor = guide_batch_tensor[..., :min_dim]
             
             # 파라미터별 정규화 적용
             normalized_generated, normalized_guide = _normalize_parameters_for_loss(
-                generated_batch_tensor, guide_batch_tensor
+                generated_batch_tensor.to(device), guide_batch_tensor.to(device)
             )
             
             # 가중치 기반 MSE loss 계산
@@ -203,37 +268,6 @@ def compute_batch_guide_loss(model, batch_generated_preset, batch_guide_presets,
         return torch.tensor(0.1, device=device, requires_grad=True)
 
 
-def compute_batch_guide_loss_simple(model, batch_generated_preset, batch_guide_presets, device):
-    """배치 단위 Simple L1 Guide Loss 계산 - 사전훈련용 (정규화 없음, 평균값 함정 방지)"""
-    try:
-        # 배치 단위로 _raw_params 추출
-        if isinstance(batch_generated_preset, dict) and "_raw_params" in batch_generated_preset:
-            generated_batch_tensor = batch_generated_preset["_raw_params"].to(device)
-            
-            if generated_batch_tensor.dim() == 3:
-                generated_batch_tensor = generated_batch_tensor.squeeze(1)  # [batch_size, 28]
-            
-            # 모든 preset이 이미 검증됨, 직접 변환
-            batch_guide_values = []
-            
-            for guide_preset in batch_guide_presets:
-                guide_values = extract_guide_values(guide_preset)
-                batch_guide_values.append(guide_values)
-            
-            # Guide values를 배치 텐서로 스택
-            guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(device)  # [batch_size, 28]
-            
-            # Simple L1 loss 계산 (정규화 없음) - 평균값 함정 방지
-            batch_l1_loss = nn.L1Loss()(generated_batch_tensor, guide_batch_tensor)
-            
-            return batch_l1_loss
-            
-        else:
-            return torch.tensor(0.1, device=device, requires_grad=True)
-            
-    except Exception as e:
-        print(f"❌ Simple batch L1 loss 실패: {e}")
-        return torch.tensor(0.1, device=device, requires_grad=True)
 
 
 def compute_batch_guide_loss_normalized_l1(model, batch_generated_preset, batch_guide_presets, device):
@@ -254,11 +288,16 @@ def compute_batch_guide_loss_normalized_l1(model, batch_generated_preset, batch_
                 batch_guide_values.append(guide_values)
             
             # Guide values를 배치 텐서로 스택
-            guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(device)  # [batch_size, 28]
+            guide_batch_tensor = torch.FloatTensor(batch_guide_values).to(device)
+
+            # 길이 불일치 대비: 공통 최소 차원으로 정렬 (pitch 제거 호환)
+            min_dim = min(generated_batch_tensor.shape[-1], guide_batch_tensor.shape[-1])
+            generated_batch_tensor = generated_batch_tensor[..., :min_dim]
+            guide_batch_tensor = guide_batch_tensor[..., :min_dim]
             
             # 파라미터별 정규화 적용
             normalized_generated, normalized_guide = _normalize_parameters_for_loss(
-                generated_batch_tensor, guide_batch_tensor
+                generated_batch_tensor.to(device), guide_batch_tensor.to(device)
             )
             
             # 정규화된 L1 loss 계산 - 평균값 함정 방지
@@ -272,6 +311,153 @@ def compute_batch_guide_loss_normalized_l1(model, batch_generated_preset, batch_
     except Exception as e:
         print(f"❌ Normalized batch L1 loss 실패: {e}")
         return torch.tensor(0.1, device=device, requires_grad=True)
+
+
+def compute_batch_hybrid_guide_loss(
+    batch_generated_preset: Dict,
+    batch_guide_presets: List[Dict],
+    device,
+    lambda_regression: float = 0.3,
+    use_gated_offset: bool = True
+):
+    """
+    Refactored hybrid guide loss with configuration-driven design
+    and correct log-scale handling.
+    """
+    # --- 헬퍼 함수 정의 ---
+    def to_linear_bin_offset(x, min_v, max_v, n_bins):
+        x = torch.clamp(x, min_v, max_v)
+        bin_width = (max_v - min_v) / n_bins
+        t = (x - min_v) / bin_width
+        bin_idx = torch.clamp(t.floor().long(), 0, n_bins - 1)
+        center = min_v + (bin_idx.float() + 0.5) * bin_width
+        offset = (x - center) / bin_width
+        return bin_idx, offset
+
+    def to_log_bin_offset(x, min_v, max_v, n_bins):
+        x = torch.clamp(x, min_v, max_v)
+        log_x = torch.log(x)
+        log_min = torch.log(torch.tensor(min_v, device=x.device, dtype=x.dtype))
+        log_max = torch.log(torch.tensor(max_v, device=x.device, dtype=x.dtype))
+        # 로그 스케일에서 선형으로 binning
+        bin_idx, offset = to_linear_bin_offset(log_x, log_min, log_max, n_bins)
+        return bin_idx, offset
+
+    # --- 파라미터 설정 (Single Source of Truth) ---
+    PARAM_CONFIG = [
+        # EQ (5 bands * 3 params = 15)
+        *[{"group": "eq", "band": b, "name": p, "idx": 4*(b-1)+i, "range": r, "bins": n, "scale": s}
+          for b in range(1, 6)
+          for i, (p, r, n, s) in enumerate([
+              ("freq", (20.0, 20000.0), 256, "log"),
+              ("gain", (-20.0, 20.0), 128, "linear"),
+              ("q",    (0.1, 30.0),    64, "log")
+          ])],
+        # Reverb (5 params)
+        *[{"group": "reverb", "name": p, "idx": 20+i, "range": r, "bins": n, "scale": "linear"}
+          for i, (p, r, n) in enumerate([
+              ("room_size", (0.0, 1.0), 64), ("pre_delay", (0.0, 100.0), 64),
+              ("diffusion", (0.0, 1.0), 64), ("damping", (0.0, 1.0), 64),
+              ("wet_gain",  (0.0, 1.0), 64)
+          ])],
+        # Distortion (2 params)
+        *[{"group": "distortion", "name": p, "idx": 25+i, "range": r, "bins": n, "scale": "linear"}
+          for i, (p, r, n) in enumerate([("gain", (1.0, 10.0), 64), ("color", (-1.0, 1.0), 64)])],
+        # Pitch 제거: decoder 최종 출력에서 제외되므로 학습에서도 사용하지 않음
+    ]
+
+    hybrid_outputs = batch_generated_preset["_hybrid"]
+    batch_guide_values = [extract_guide_values(g) for g in batch_guide_presets]
+    guide_tensor = torch.FloatTensor(batch_guide_values).to(device)
+
+    if _should_debug_loss():
+        try:
+            raw = batch_generated_preset.get("_raw_params", None)
+            if raw is not None:
+                _tensor_stats_brief("gen._raw_params", raw)
+        except Exception:
+            pass
+        _tensor_stats_brief("guide_tensor", guide_tensor)
+
+    total_class_loss = 0.0
+    total_offset_loss = 0.0
+    num_class_terms = 0
+    num_offset_terms = 0
+    try:
+        # --- 통합된 손실 계산 루프 ---
+        for config in PARAM_CONFIG:
+            group, name = config["group"], config["name"]
+            
+            # 모델 출력에서 logits/offset 가져오기
+            if group == "eq":
+                band_key = f"band_{config['band']}"
+                if band_key not in hybrid_outputs.get(group, {}): continue
+                aux = hybrid_outputs[group][band_key]
+                logits_key, offset_key = f"{name}_logits", f"{name}_offset"
+            else:
+                aux = hybrid_outputs.get(group, {})
+                logits_key, offset_key = f"{name}_class", f"{name}_offset"
+            
+            if logits_key not in aux: continue
+            logits = aux[logits_key]
+            if _should_debug_loss():
+                _tensor_stats_brief(f"hyb.{group}.{name}.logits", logits)
+
+            # GT 값 가져오기
+            gt_val = guide_tensor[:, config["idx"]].unsqueeze(-1)
+            if _should_debug_loss():
+                _tensor_stats_brief(f"guide.{group}.{name}.gt_val", gt_val)
+            min_val, max_val, num_bins = config["range"][0], config["range"][1], config["bins"]
+            
+            # 분류 손실 계산
+            if config["scale"] == "classification_only":
+                gt_bins = torch.round(torch.clamp(gt_val.squeeze(-1), min_val, max_val)).long()
+                gt_bins = (gt_bins - int(min_val)) # 0-24 범위로 변환
+                class_loss = F.cross_entropy(logits, gt_bins)
+            else:
+                binning_fn = to_log_bin_offset if config["scale"] == "log" else to_linear_bin_offset
+                gt_bin, gt_off = binning_fn(gt_val, min_val, max_val, num_bins)
+                class_loss = F.cross_entropy(logits, gt_bin.squeeze(-1))
+            if _should_debug_loss():
+                _debug_loss_print(f"[LOSS-DEBUG] class_loss({group}.{name})={float(class_loss.item()):.6f}")
+
+            total_class_loss += class_loss
+            num_class_terms += 1
+            
+            # 회귀 (오프셋) 손실 계산
+            if offset_key in aux:
+                offset = aux[offset_key]
+                probs = F.softmax(logits, dim=-1)
+                prob_correct = probs.gather(1, gt_bin)
+                
+                offset_weight = prob_correct.detach() if use_gated_offset else 1.0
+                off_loss = F.l1_loss(offset, gt_off, reduction='none')
+                off_loss = (off_loss * offset_weight).mean()
+                if _should_debug_loss():
+                    _debug_loss_print(f"[LOSS-DEBUG] off_loss({group}.{name})={float(off_loss.item()):.6f}")
+
+                total_offset_loss += off_loss
+                num_offset_terms += 1
+
+        # 최종 손실 계산
+        if num_class_terms > 0: total_class_loss /= num_class_terms
+        if num_offset_terms > 0: total_offset_loss /= num_offset_terms
+        total_loss = total_class_loss + lambda_regression * total_offset_loss
+        return {
+            'total_loss': total_loss,
+            'classification_loss': total_class_loss,
+            'offset_loss': total_offset_loss,
+            'num_class_terms': torch.tensor(float(num_class_terms), device=device),
+            'num_offset_terms': torch.tensor(float(num_offset_terms), device=device),
+        }
+
+    except Exception as e:
+        print(f"❌ Hybrid guide loss 실패: {e}")
+        return {
+            'total_loss': torch.tensor(0.1, device=device, requires_grad=True),
+            'classification_loss': torch.tensor(0.1, device=device),
+            'offset_loss': torch.tensor(0.0, device=device)
+        }
 
 
 def _normalize_parameters_for_loss(generated_tensor, guide_tensor):
@@ -337,13 +523,7 @@ def _normalize_parameters_for_loss(generated_tensor, guide_tensor):
         normalized_generated[..., 26] = (generated_tensor[..., 26] + 1) / 2  # -1~1 → 0~1
         normalized_guide[..., 26] = (guide_tensor[..., 26] + 1) / 2
     
-    # Pitch parameters (27)
-    if 27 < generated_tensor.size(-1):
-        # 로그 스케일 (pitch ratio)
-        gen_pitch = torch.clamp(generated_tensor[..., 27], min=0.5, max=2.0)
-        guide_pitch = torch.clamp(guide_tensor[..., 27], min=0.5, max=2.0)
-        normalized_generated[..., 27] = torch.log(gen_pitch / 0.5) / torch.log(torch.tensor(4.0))
-        normalized_guide[..., 27] = torch.log(guide_pitch / 0.5) / torch.log(torch.tensor(4.0))
+    # Pitch parameters 제거: decoder 최종 출력에서 제외. 존재하더라도 무시.
     
     return normalized_generated, normalized_guide
 
@@ -371,7 +551,15 @@ def _compute_weighted_mse_loss(normalized_generated, normalized_guide):
     # Pitch parameters (1개)
     weights.extend([2.0])  # pitch는 중요하므로 높은 가중치
     
-    # 가중치 텐서 생성
+    # 동적 길이 대응: pitch 제거 후에도 길이가 맞도록 가중치 길이 조정
+    current_dim = normalized_generated.shape[-1]
+    if len(weights) < current_dim:
+        # 부족하면 0으로 패딩 (무시)
+        weights = weights + [0.0] * (current_dim - len(weights))
+    elif len(weights) > current_dim:
+        # 길면 잘라냄
+        weights = weights[:current_dim]
+
     weight_tensor = torch.tensor(weights, device=normalized_generated.device, dtype=normalized_generated.dtype)
     
     # 배치 차원에 맞춰 확장
@@ -389,43 +577,6 @@ def _compute_weighted_mse_loss(normalized_generated, normalized_guide):
     return weighted_mse.mean()
 
 
-def _compute_frequency_regularization_loss(preset_params, device):
-    """Frequency들이 서로 너무 가까워지는 것을 방지하는 diversity regularization loss"""
-    try:
-        if "_raw_params" not in preset_params:
-            return torch.tensor(0.0, device=device)
-        
-        raw_params = preset_params["_raw_params"]
-        if raw_params.dim() > 1:
-            raw_params = raw_params[0]  # 첫 번째 배치 아이템
-        
-        # EQ frequency 파라미터들 (0, 4, 8, 12, 16 인덱스)
-        freq_indices = [0, 4, 8, 12, 16]
-        frequencies = raw_params[freq_indices]
-        
-        # 현재 frequency들을 로그 스케일로 변환
-        current_log_freqs = torch.log(frequencies + 1e-6)
-        
-        # 특정 타겟 제거 - 대신 frequency들이 서로 다르게 분포하도록만 유도
-        distance_penalty = torch.tensor(0.0, device=device)  # 타겟 기반 페널티 제거
-        
-        # 하지만 너무 가까워지는 것도 방지 (minimum distance)
-        min_distance_penalty = torch.tensor(0.0, device=device)
-        for i in range(len(frequencies)):
-            for j in range(i + 1, len(frequencies)):
-                log_distance = torch.abs(current_log_freqs[i] - current_log_freqs[j])
-                # 로그 스케일에서 0.5 이하로 가까워지면 페널티
-                if log_distance < 0.5:
-                    min_distance_penalty += torch.exp(-log_distance * 4.0)
-        
-        # 두 페널티의 균형
-        total_penalty = 0.5 * distance_penalty + 0.5 * min_distance_penalty
-        
-        return total_penalty
-        
-    except Exception as e:
-        return torch.tensor(0.0, device=device)
-
 
 def compute_adversarial_training_loss(
     model,
@@ -433,9 +584,18 @@ def compute_adversarial_training_loss(
     batch_generated_preset,
     batch_guide_presets,
     device,
-    adversarial_weight=1.0,
-    guide_weight=1.0,
-    use_feature_matching=False
+    adversarial_weight: float = 1.0,
+    guide_weight: float = 1.0,
+    use_feature_matching: bool = False,
+    # Guide 손실 모드: 'hybrid' 또는 'normalized_l1'
+    guide_mode: str = 'hybrid',
+    # Hybrid 전용 옵션
+    lambda_regression: float = 0.3,
+    use_gated_offset: bool = True,
+    feature_matching_weight: float = 0.1,
+    # Discriminator 업데이트를 내부에서 수행할지 여부 및 옵티마이저/accelerator 전달
+    discriminator_optimizer=None,
+    accelerator=None,
 ):
     """
     적대적 학습을 위한 복합 손실 계산
@@ -454,10 +614,24 @@ def compute_adversarial_training_loss(
         dict: 각종 손실값들
     """
     try:
-        # 1. Guide Loss 계산 (기존)
-        guide_loss = compute_batch_guide_loss_normalized_l1(
-            model, batch_generated_preset, batch_guide_presets, device
-        )
+        # 1. Guide Loss 계산 (모드에 따라 선택)
+        if guide_mode == 'hybrid':
+            hybrid = compute_batch_hybrid_guide_loss(
+                batch_generated_preset=batch_generated_preset,
+                batch_guide_presets=batch_guide_presets,
+                device=device,
+                lambda_regression=lambda_regression,
+                use_gated_offset=use_gated_offset,
+            )
+            guide_loss = hybrid['total_loss']
+            if _should_debug_loss():
+                _debug_loss_print(f"[LOSS-DEBUG] guide_mode=hybrid, guide_total={float(guide_loss.item()):.6f}")
+        else:
+            guide_loss = compute_batch_guide_loss_normalized_l1(
+                model, batch_generated_preset, batch_guide_presets, device
+            )
+            if _should_debug_loss():
+                _debug_loss_print(f"[LOSS-DEBUG] guide_mode=normalized_l1, guide_total={float(guide_loss.item()):.6f}")
         
         # 2. 생성된 파라미터 정규화 (Discriminator 입력용)
         if isinstance(batch_generated_preset, dict) and "_raw_params" in batch_generated_preset:
@@ -473,25 +647,63 @@ def compute_adversarial_training_loss(
             guide_raw = torch.FloatTensor(batch_guide_values).to(device)
             
             # 파라미터 정규화 (Discriminator는 정규화된 입력을 받음)
+            # 길이 불일치 대비: 공통 최소 차원으로 정렬 (pitch 제거 호환)
+            min_dim = min(generated_raw.shape[-1], guide_raw.shape[-1])
+            generated_raw = generated_raw[..., :min_dim]
+            guide_raw = guide_raw[..., :min_dim]
+
             normalized_generated, normalized_guide = _normalize_parameters_for_loss(
-                generated_raw, guide_raw
+                generated_raw.to(device), guide_raw.to(device)
             )
+            # 2.1 Discriminator update step (선택적)
+            if discriminator_optimizer is not None:
+                try:
+                    disc = discriminator.module if hasattr(discriminator, 'module') else discriminator
+                    discriminator_optimizer.zero_grad()
+                    disc_loss, _, _ = disc.compute_adversarial_loss(
+                        real_params=normalized_guide.detach(),
+                        fake_params=normalized_generated.detach()
+                    )
+                    if accelerator is not None:
+                        accelerator.backward(disc_loss)
+                    else:
+                        disc_loss.backward()
+                    discriminator_optimizer.step()
+                    if _should_debug_loss():
+                        _debug_loss_print(f"[LOSS-DEBUG] discriminator_loss={float(disc_loss.item()):.6f}")
+                except Exception as e:
+                    _debug_loss_print(f"[LOSS-DEBUG] D step failed: {e}")
+            if _should_debug_loss():
+                _tensor_stats_brief("generated_raw", generated_raw)
+                _tensor_stats_brief("guide_raw", guide_raw)
+                _tensor_stats_brief("normalized_generated", normalized_generated)
+                _tensor_stats_brief("normalized_guide", normalized_guide)
             
-            # 3. Generator Adversarial Loss 계산
-            generator_adv_loss = discriminator.compute_generator_adversarial_loss(normalized_generated)
+            # 3. Generator Adversarial Loss 계산 (DDP wrapping 대응)
+            disc = discriminator.module if hasattr(discriminator, 'module') else discriminator
+            if not hasattr(disc, 'compute_generator_adversarial_loss'):
+                raise AttributeError("discriminator has no method compute_generator_adversarial_loss (check DDP wrapping)")
+            generator_adv_loss = disc.compute_generator_adversarial_loss(normalized_generated)
+            if _should_debug_loss():
+                _debug_loss_print(f"[LOSS-DEBUG] generator_adv_loss={float(generator_adv_loss.item()):.6f}")
             
             # 4. Feature Matching Loss (선택적)
             feature_matching_loss = torch.tensor(0.0, device=device)
             if use_feature_matching:
                 # 간단한 feature matching - L2 distance between generated and real
                 feature_matching_loss = F.mse_loss(normalized_generated, normalized_guide.detach())
+                if _should_debug_loss():
+                    _debug_loss_print(f"[LOSS-DEBUG] feature_matching_loss={float(feature_matching_loss.item()):.6f}")
             
             # 5. 총 Generator Loss 계산
             total_generator_loss = (
-                guide_weight * guide_loss + 
+                guide_weight * guide_loss +
                 adversarial_weight * generator_adv_loss +
-                0.1 * feature_matching_loss  # Feature matching은 작은 가중치
+                feature_matching_weight * feature_matching_loss
             )
+            if _should_debug_loss():
+                _debug_loss_print(f"[LOSS-DEBUG] weights: guide={guide_weight}, adv={adversarial_weight}, fm={feature_matching_weight}")
+                _debug_loss_print(f"[LOSS-DEBUG] total_generator_loss={float(total_generator_loss.item()):.6f}")
             
             return {
                 'total_loss': total_generator_loss,
@@ -511,6 +723,7 @@ def compute_adversarial_training_loss(
             
     except Exception as e:
         print(f"❌ Adversarial training loss 실패: {e}")
+        traceback.print_exc()
         return {
             'total_loss': torch.tensor(0.1, device=device, requires_grad=True),
             'guide_loss': torch.tensor(0.1, device=device),

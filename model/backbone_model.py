@@ -224,7 +224,7 @@ class GatedResidualUnit(nn.Module):
         self.act = nn.GELU()
         self.up = nn.Linear(hidden_dim, dim)
         self.dropout = nn.Dropout(dropout)
-        self.gate = nn.Parameter(torch.zeros(1))
+        self.gate = nn.Parameter(torch.full((1,), -10.0))
         nn.init.xavier_uniform_(self.down.weight)
         nn.init.xavier_uniform_(self.up.weight)
 
@@ -307,18 +307,17 @@ class TunedCLAPWithAdapters(nn.Module):
         if CLAPTextEncoder is None:
             raise ImportError("CLAPTextEncoder is not available. Ensure encoder.text_encoder is importable.")
         
-        # CLAP 모델 초기화 후 실제 출력 차원 확인
+        # CLAP 모델 초기화 (text embedding용)
         self.clap = CLAPTextEncoder(freeze_model=True)
         
-        # CLAP 실제 출력 차원 확인 (768일 가능성)
-        dummy_audio = torch.randn(1, 48000)  # 1초 더미 오디오
+        # CLAP text embedding 차원 확인
+        dummy_texts = ["dummy text"]
         with torch.no_grad():
-            dummy_embed = self.clap.get_audio_embedding_with_grad(dummy_audio)
-            actual_audio_dim = dummy_embed.shape[-1]
+            dummy_text_embed = self.clap.get_text_embedding(dummy_texts)
+            text_embed_dim = dummy_text_embed.shape[-1]
         
-        self.audio_dim = actual_audio_dim  # 실제 CLAP 출력 차원 사용
+        self.text_embed_dim = text_embed_dim
         self.llm_dim = llm_feature_dim
-        
         
         # CLAP 파라미터를 확실히 frozen으로 설정
         if freeze_clap:
@@ -330,7 +329,7 @@ class TunedCLAPWithAdapters(nn.Module):
         for _ in range(num_adapters):
             adapters.append(
                 CrossAttentionAdapter(
-                    audio_dim=self.audio_dim,
+                    audio_dim=text_embed_dim,  # CLAP text embedding을 base로 사용
                     llm_dim=self.llm_dim,
                     attn_dim=attention_dim,
                     num_heads=num_attention_heads,
@@ -339,8 +338,8 @@ class TunedCLAPWithAdapters(nn.Module):
                 )
             )
         self.adapters = nn.ModuleList(adapters)
-        self.final_norm = nn.LayerNorm(self.audio_dim)
-        self.output_dim = self.audio_dim
+        self.final_norm = nn.LayerNorm(text_embed_dim)
+        self.output_dim = text_embed_dim
         
         # 어댑터 파라미터 통계 출력
         adapter_params = sum(p.numel() for p in self.adapters.parameters())
@@ -352,39 +351,35 @@ class TunedCLAPWithAdapters(nn.Module):
         print(f"   Final norm: {norm_params:,} parameters")
         print(f"   Total trainable: {total_trainable:,} parameters")
         print(f"   LLM feature dim: {llm_feature_dim}")
-        print(f"   Audio dim: {self.audio_dim}")
+        print(f"   CLAP text embed dim: {text_embed_dim}")
 
-    def encode_audio_with_clap(self, audio_data: torch.Tensor) -> torch.Tensor:
-        return self.clap.get_audio_embedding_with_grad(audio_data)
-
-    @torch.no_grad()
-    def encode_text_with_clap(self, texts: List[str]) -> torch.Tensor:
-        return self.clap.get_text_embedding(texts)
-
-    def forward(self, text_emb: Optional[torch.Tensor] = None, clap_emb: Optional[torch.Tensor] = None, *, audio_data: Optional[torch.Tensor] = None, llm_hidden: Optional[torch.Tensor] = None):
+    def forward(self, texts: List[str], llm_hidden: torch.Tensor):
         """
-        Support two modes:
-        - If audio_data and llm_hidden provided: run full CLAP+adapters path
-        - Else if text_emb/clap_emb provided (pipeline-style), treat text_emb as LLM hidden (if provided)
+        Text-only backbone processing
+        
+        Args:
+            texts: 원본 텍스트 (CLAP으로 인코딩할 대상)
+            llm_hidden: LLM으로 만든 text embedding (cross-attention용)
+            
+        Returns:
+            fused_features: CLAP text embedding + LLM hidden의 융합된 features
         """
-        if audio_data is not None and llm_hidden is not None:
-            audio_emb = self.encode_audio_with_clap(audio_data).float()
-            llm_h = llm_hidden.float()
-        else:
-            # Pipeline compatibility: use provided embeddings
-            if clap_emb is None:
-                raise ValueError("clap_emb or (audio_data+llm_hidden) must be provided for TunedCLAPWithAdapters")
-            audio_emb = clap_emb.float()
-            llm_h = text_emb.float() if text_emb is not None else None
-            if llm_h is None:
-                raise ValueError("When using embeddings mode, text_emb must carry LLM features for fusion")
-
-        if audio_emb.device != llm_h.device:
-            llm_h = llm_h.to(audio_emb.device)
-
-        fused = audio_emb
+        # 1. CLAP으로 원본 texts 인코딩 (base representation)
+        with torch.no_grad():
+            clap_text_embed = self.clap.get_text_embedding(texts).float()
+        
+        # 2. LLM hidden features 준비
+        llm_h = llm_hidden.float()
+        
+        # 3. Device 맞추기
+        if clap_text_embed.device != llm_h.device:
+            llm_h = llm_h.to(clap_text_embed.device)
+        
+        # 4. Cross-attention fusion: CLAP text embedding(base) + LLM hidden(context)
+        fused = clap_text_embed
         for adapter in self.adapters:
-            fused = adapter(fused, llm_h)
+            fused = adapter(fused, llm_h)  # CLAP embedding을 LLM hidden과 cross-attention
+        
         fused = self.final_norm(fused)
         return fused
 

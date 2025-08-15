@@ -217,6 +217,11 @@ class CLAPTextEncoder(nn.Module):
         self.to(device) # 모든 구성요소를 올바른 장치로 이동
 
         # --- 1. 오디오 길이 패딩 (10초) ---
+        if os.getenv("DEBUG_LOSS", "0") == "1":
+            try:
+                print(f"[CLAP-DEBUG] input audio_tensor: dim={audio_tensor.dim()}, shape={tuple(audio_tensor.shape)}, device={audio_tensor.device}")
+            except Exception:
+                pass
         target_len_s = 10
         target_samples = self.target_sr * target_len_s
         
@@ -259,6 +264,11 @@ class CLAPTextEncoder(nn.Module):
         # Direct: [B, T, F] -> [B, 1, T, F]
         input_spectrograms = transposed_spectrograms.unsqueeze(1)  # [B, 1, T, F]
         # CLAP 모델 forward
+        if os.getenv("DEBUG_LOSS", "0") == "1":
+            try:
+                print(f"[CLAP-DEBUG] input_spectrograms: shape={tuple(input_spectrograms.shape)}, device={input_spectrograms.device}")
+            except Exception:
+                pass
         audio_embeds = self.clap_model.audio_model(input_spectrograms).pooler_output
         final_audio_embeds = self.clap_model.audio_projection(audio_embeds) # shape: [B, 512]
         return final_audio_embeds

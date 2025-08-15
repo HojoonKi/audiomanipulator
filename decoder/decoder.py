@@ -15,6 +15,37 @@ import torch.nn.functional as F
 import numpy as np
 import math
 from typing import Dict, List, Optional, Tuple, Union
+import os
+
+
+def _should_debug_decoder() -> bool:
+    try:
+        return os.getenv("DEBUG_DECODER", "0") == "1"
+    except Exception:
+        return False
+
+
+def _decoder_debug_print(message: str) -> None:
+    if _should_debug_decoder():
+        try:
+            print(message)
+        except Exception:
+            pass
+
+
+def _tensor_stats_brief_dec(name: str, tensor: torch.Tensor) -> None:
+    if not _should_debug_decoder():
+        return
+    try:
+        shape = tuple(tensor.shape) if hasattr(tensor, 'shape') else 'NA'
+        dtype = str(tensor.dtype) if hasattr(tensor, 'dtype') else 'NA'
+        device = str(tensor.device) if hasattr(tensor, 'device') else 'NA'
+        dim = int(tensor.dim()) if hasattr(tensor, 'dim') else -1
+        tmin = float(torch.min(tensor).item()) if hasattr(tensor, 'numel') and tensor.numel() > 0 else float('nan')
+        tmax = float(torch.max(tensor).item()) if hasattr(tensor, 'numel') and tensor.numel() > 0 else float('nan')
+        _decoder_debug_print(f"[DECODER-DEBUG] {name}: dim={dim}, shape={shape}, dtype={dtype}, device={device}, min={tmin:.4f}, max={tmax:.4f}")
+    except Exception as e:
+        _decoder_debug_print(f"[DECODER-DEBUG] {name}: stats failed: {e}")
 
 # ===============================================
 # Parallel Decoder Architecture (Recommended)
@@ -28,11 +59,17 @@ class EQBandDecoder(nn.Module):
                  hidden_dim: int = 128,  # 더 작은 hidden_dim (밴드별로 특화)
                  num_layers: int = 2,    # 더 간단한 구조
                  dropout: float = 0.1,
-                 band_id: int = 1):
+                 band_id: int = 1,
+                 num_freq_bins: int = 256,  # 주파수 분류 빈 개수
+                 num_gain_bins: int = 128,  # 게인 분류 빈 개수
+                 num_q_bins: int = 64):     # Q factor 분류 빈 개수
         super().__init__()
         
         self.band_id = band_id
         self.input_dim = input_dim
+        self.num_freq_bins = num_freq_bins
+        self.num_gain_bins = num_gain_bins
+        self.num_q_bins = num_q_bins
         
         # 밴드별 특화된 소형 decoder
         layers = []
@@ -42,50 +79,127 @@ class EQBandDecoder(nn.Module):
             layers.extend([
                 nn.Linear(current_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
-                nn.SiLU(),  # SiLU activation for smoother gradients
+                nn.GELU(),
                 nn.Dropout(dropout)
             ])
             current_dim = hidden_dim
         
         self.decoder_layers = nn.Sequential(*layers)
         
-        # 밴드별 파라미터 헤드 (4개: freq, gain, q, filter_type)
-        self.freq_head = nn.Linear(hidden_dim, 1)
-        self.gain_head = nn.Linear(hidden_dim, 1)
-        self.q_head = nn.Linear(hidden_dim, 1)
+        # 하이브리드 헤드: 분류 + 회귀
+        # Frequency (20Hz - 20kHz)
+        self.freq_class_head = nn.Linear(hidden_dim, num_freq_bins)  # 어느 구간인지
+        self.freq_offset_head = nn.Linear(hidden_dim, 1)             # 구간 내 미세 조정
+        
+        # Gain (-30dB - +30dB)  
+        self.gain_class_head = nn.Linear(hidden_dim, num_gain_bins)
+        self.gain_offset_head = nn.Linear(hidden_dim, 1)
+        
+        # Q factor (0.1 - 30.0)
+        self.q_class_head = nn.Linear(hidden_dim, num_q_bins)
+        self.q_offset_head = nn.Linear(hidden_dim, 1)
+        
+        # Filter type (순수 분류만)
         self.filter_type_head = nn.Linear(hidden_dim, 5)  # 5 filter types
         
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        Convert text embedding to single EQ band parameters
+        Convert text embedding to single EQ band parameters using hybrid heads
         
         Args:
             text_embedding: (batch_size, embedding_dim)
             
         Returns:
-            band_parameters: Dict of this band's parameters
+            band_parameters: Dict of this band's parameters (both classification and regression)
         """
         # Pass through decoder layers
         hidden = self.decoder_layers(text_embedding)
         
-        # Generate band-specific parameters
-        freq_raw = self.freq_head(hidden)
-        gain_raw = self.gain_head(hidden)
-        q_raw = self.q_head(hidden)
-        filter_type_raw = self.filter_type_head(hidden)
+        # 하이브리드 예측: 분류 + 회귀
+        # Frequency
+        freq_logits = self.freq_class_head(hidden)  # (batch, num_freq_bins)
+        freq_offset_raw = self.freq_offset_head(hidden)  # (batch, 1)
+        freq_offset = torch.tanh(freq_offset_raw) * 0.5  # [-0.5, 0.5] 구간 내 미세 조정
         
-        # Apply parameter-specific constraints
-        freq = self._apply_freq_constraints(freq_raw)
-        gain = self._apply_gain_constraints(gain_raw)
-        q = self._apply_q_constraints(q_raw)
-        filter_type = torch.softmax(filter_type_raw, dim=-1)
+        # Gain  
+        gain_logits = self.gain_class_head(hidden)
+        gain_offset_raw = self.gain_offset_head(hidden)
+        gain_offset = torch.tanh(gain_offset_raw) * 0.5
+        
+        # Q factor
+        q_logits = self.q_class_head(hidden)
+        q_offset_raw = self.q_offset_head(hidden)
+        q_offset = torch.tanh(q_offset_raw) * 0.5
+        
+        # Filter type (순수 분류)
+        filter_type_logits = self.filter_type_head(hidden)
+        filter_type = torch.softmax(filter_type_logits, dim=-1)
+        
+        # 최종 연속값 계산 (추론용) - 모두 [B,1] 컬럼 텐서로 표준화
+        freq_final = self._reconstruct_frequency(freq_logits, freq_offset).unsqueeze(-1)
+        gain_final = self._reconstruct_gain(gain_logits, gain_offset).unsqueeze(-1)
+        q_final = self._reconstruct_q(q_logits, q_offset).unsqueeze(-1)
         
         return {
-            f'band_{self.band_id}_freq': freq,
-            f'band_{self.band_id}_gain': gain,
-            f'band_{self.band_id}_q': q,
-            f'band_{self.band_id}_filter_type': filter_type
+            # 하이브리드 출력 (학습용)
+            f'band_{self.band_id}_freq_logits': freq_logits,
+            f'band_{self.band_id}_freq_offset': freq_offset,
+            f'band_{self.band_id}_gain_logits': gain_logits,
+            f'band_{self.band_id}_gain_offset': gain_offset,
+            f'band_{self.band_id}_q_logits': q_logits,
+            f'band_{self.band_id}_q_offset': q_offset,
+            f'band_{self.band_id}_filter_type': filter_type,
+            
+            # 최종 연속값 (추론용)
+            f'band_{self.band_id}_freq': freq_final,
+            f'band_{self.band_id}_gain': gain_final,
+            f'band_{self.band_id}_q': q_final,
         }
+    
+    def _reconstruct_frequency(self, freq_logits: torch.Tensor, freq_offset: torch.Tensor) -> torch.Tensor:
+        """분류 + 회귀로부터 최종 주파수 값 복원"""
+        # 1. 분류에서 빈 인덱스 추출
+        freq_bin_idx = torch.argmax(freq_logits, dim=-1)  # (batch,)
+        
+        # 2. 빈 인덱스를 주파수 범위로 변환 (로그 스케일)
+        log_min = torch.log(torch.tensor(20.0, device=freq_logits.device))
+        log_max = torch.log(torch.tensor(20000.0, device=freq_logits.device))
+        
+        # 각 빈의 중심 주파수 계산
+        bin_width = (log_max - log_min) / self.num_freq_bins
+        bin_center_log = log_min + (freq_bin_idx.float() + 0.5) * bin_width
+        
+        # 3. 오프셋 적용 (빈 너비의 절반 범위 내에서)
+        final_log_freq = bin_center_log + freq_offset.squeeze(-1) * bin_width
+        
+        # 4. 로그에서 실제 주파수로 변환
+        return torch.exp(final_log_freq)
+    
+    def _reconstruct_gain(self, gain_logits: torch.Tensor, gain_offset: torch.Tensor) -> torch.Tensor:
+        """분류 + 회귀로부터 최종 게인 값 복원"""
+        gain_bin_idx = torch.argmax(gain_logits, dim=-1)
+        
+        # -20dB ~ +20dB 범위 (현재 설정에 맞춤)
+        gain_min, gain_max = -20.0, 20.0
+        bin_width = (gain_max - gain_min) / self.num_gain_bins
+        bin_center = gain_min + (gain_bin_idx.float() + 0.5) * bin_width
+        
+        final_gain = bin_center + gain_offset.squeeze(-1) * bin_width
+        return final_gain.clamp(gain_min, gain_max)
+    
+    def _reconstruct_q(self, q_logits: torch.Tensor, q_offset: torch.Tensor) -> torch.Tensor:
+        """분류 + 회귀로부터 최종 Q factor 값 복원"""
+        q_bin_idx = torch.argmax(q_logits, dim=-1)
+        
+        # 0.1 ~ 30.0 범위 (로그 스케일)
+        log_min = torch.log(torch.tensor(0.1, device=q_logits.device))
+        log_max = torch.log(torch.tensor(30.0, device=q_logits.device))
+        
+        bin_width = (log_max - log_min) / self.num_q_bins
+        bin_center_log = log_min + (q_bin_idx.float() + 0.5) * bin_width
+        
+        final_log_q = bin_center_log + q_offset.squeeze(-1) * bin_width
+        return torch.exp(final_log_q)
     
     def _apply_freq_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
         """주파수 제약 적용 - 밴드별 특화 없이 전체 범위에서 자유롭게"""
@@ -96,8 +210,8 @@ class EQBandDecoder(nn.Module):
         return torch.exp(log_freq)
     
     def _apply_gain_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
-        """게인 제약: -30dB to +30dB"""
-        return torch.tanh(raw_value) * 30
+        """게인 제약: -20dB to +20dB"""
+        return torch.tanh(raw_value) * 20
     
     def _apply_q_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
         """Q factor 제약: 0.1 to 30.0 (로그 스케일)"""
@@ -116,11 +230,23 @@ class EffectDecoderBlock(nn.Module):
                  hidden_dim: int = 256,
                  num_layers: int = 3,
                  dropout: float = 0.1,
-                 effect_name: str = "generic"):
+                 effect_name: str = "generic",
+                 # 하이브리드 헤드 설정
+                 num_bins_config: dict = None):
         super().__init__()
         
         self.effect_name = effect_name
         self.input_dim = input_dim
+        
+        # 기본 빈 개수 설정
+        if num_bins_config is None:
+            num_bins_config = {
+                'reverb': {'room_size': 64, 'pre_delay': 64, 'diffusion': 64, 'damping': 64, 'wet_gain': 64},
+                'distortion': {'gain': 64, 'color': 64},
+                # pitch는 -12..+12 총 25개 클래스
+                'pitch': {'scale': 25}
+            }
+        self.num_bins_config = num_bins_config.get(effect_name, {})
         
         # Multi-layer decoder with residual connections
         layers = []
@@ -130,16 +256,49 @@ class EffectDecoderBlock(nn.Module):
             layers.extend([
                 nn.Linear(current_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
-                nn.ReLU(),
+                nn.GELU(),
                 nn.Dropout(dropout)
             ])
             current_dim = hidden_dim
         
         self.decoder_layers = nn.Sequential(*layers)
         
-        # Effect-specific parameter heads (EQ 제외)
-        self.parameter_heads = self._build_parameter_heads(hidden_dim)
+        # Effect-specific hybrid parameter heads
+        self.parameter_heads = self._build_hybrid_parameter_heads(hidden_dim)
         
+    def _build_hybrid_parameter_heads(self, hidden_dim: int) -> nn.ModuleDict:
+        """Build hybrid parameter heads (classification + regression) for each effect"""
+        
+        heads = nn.ModuleDict()
+        
+        if self.effect_name == "reverb":
+            # Reverb parameters with hybrid heads
+            for param_name, num_bins in self.num_bins_config.items():
+                heads[f'{param_name}_class'] = nn.Linear(hidden_dim, num_bins)  # 분류 헤드
+                heads[f'{param_name}_offset'] = nn.Linear(hidden_dim, 1)        # 회귀 헤드
+                
+        elif self.effect_name == "distortion":
+            # Distortion parameters with hybrid heads
+            for param_name, num_bins in self.num_bins_config.items():
+                heads[f'{param_name}_class'] = nn.Linear(hidden_dim, num_bins)
+                heads[f'{param_name}_offset'] = nn.Linear(hidden_dim, 1)
+                
+        elif self.effect_name == "pitch":
+            # Pitch는 분류 전용(-12..+12 semitones)
+            for param_name, num_bins in self.num_bins_config.items():
+                heads[f'{param_name}_class'] = nn.Linear(hidden_dim, num_bins)
+                
+        else:
+            # Generic parameters (fallback)
+            heads['param_1_class'] = nn.Linear(hidden_dim, 64)
+            heads['param_1_offset'] = nn.Linear(hidden_dim, 1)
+            heads['param_2_class'] = nn.Linear(hidden_dim, 64)
+            heads['param_2_offset'] = nn.Linear(hidden_dim, 1)
+            heads['param_3_class'] = nn.Linear(hidden_dim, 64)
+            heads['param_3_offset'] = nn.Linear(hidden_dim, 1)
+        
+        return heads
+    
     def _build_parameter_heads(self, hidden_dim: int) -> nn.ModuleDict:
         """Build parameter heads specific to each effect (EQ 제외 - 별도 EQBandDecoder 사용)"""
         
@@ -152,7 +311,6 @@ class EffectDecoderBlock(nn.Module):
             heads['diffusion'] = nn.Linear(hidden_dim, 1)      # Diffusion (0-1)
             heads['damping'] = nn.Linear(hidden_dim, 1)        # High-freq damping (0-1)
             heads['wet_gain'] = nn.Linear(hidden_dim, 1)       # Wet signal level
-            heads['dry_gain'] = nn.Linear(hidden_dim, 1)       # Dry signal level
             
         elif self.effect_name == "distortion":
             # Distortion: Simplified set (processor에서 실제 사용하는 것만)
@@ -173,28 +331,120 @@ class EffectDecoderBlock(nn.Module):
     
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        Convert text embedding to effect parameters
+        Convert text embedding to effect parameters using hybrid heads
         
         Args:
             text_embedding: (batch_size, embedding_dim)
             
         Returns:
-            parameters: Dict of parameter tensors
+            parameters: Dict of parameter tensors (both classification and regression)
         """
         # Pass through decoder layers
         hidden = self.decoder_layers(text_embedding)
         
-        # Generate parameters through individual heads
+        # Generate hybrid parameters
         parameters = {}
+        
+        # 하이브리드 헤드 처리
+        class_outputs = {}
+        offset_outputs = {}
+        
         for param_name, head in self.parameter_heads.items():
-            raw_param = head(hidden)
+            raw_output = head(hidden)
             
-            # Apply parameter-specific activations and scaling
-            parameters[param_name] = self._apply_parameter_constraints(
-                param_name, raw_param
-            )
+            if param_name.endswith('_class'):
+                # 분류 헤드: softmax 적용
+                base_name = param_name[:-6]  # '_class' 제거
+                class_outputs[base_name] = raw_output
+                parameters[param_name] = torch.softmax(raw_output, dim=-1)
+                
+            elif param_name.endswith('_offset'):
+                # 회귀 헤드: tanh로 [-0.5, 0.5] 제약
+                base_name = param_name[:-7]  # '_offset' 제거
+                offset_outputs[base_name] = torch.tanh(raw_output) * 0.5
+                parameters[param_name] = offset_outputs[base_name]
+        
+        # 최종 연속값 계산 (추론용)
+        for param_name in class_outputs.keys():
+            if self.effect_name == "pitch":
+                # pitch는 분류만: 클래스 → 정수 반음값(-12..+12)
+                logits = class_outputs[param_name]
+                class_idx = torch.argmax(logits, dim=-1, keepdim=True)  # [B,1]
+                # 0..24 → -12..+12 매핑, [B,1] 유지
+                parameters[param_name] = class_idx.float() - 12.0
+            elif param_name in offset_outputs:
+                final_value = self._reconstruct_parameter(
+                    param_name, 
+                    class_outputs[param_name], 
+                    offset_outputs[param_name]
+                )
+                # 모든 최종 값은 [B,1] 컬럼 텐서로 표준화
+                if final_value.dim() == 1:
+                    final_value = final_value.unsqueeze(-1)
+                parameters[param_name] = final_value
         
         return parameters
+    
+    def _reconstruct_parameter(self, param_name: str, class_logits: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
+        """분류 + 회귀로부터 최종 파라미터 값 복원"""
+        
+        # 분류에서 빈 인덱스 추출
+        bin_idx = torch.argmax(class_logits, dim=-1)
+        num_bins = self.num_bins_config.get(param_name, 64)
+        
+        if self.effect_name == "reverb":
+            if param_name == "room_size":
+                # 0.1 ~ 10.0 범위 (fined_presets와 일치)
+                min_val, max_val = 0.1, 10.0
+                bin_width = (max_val - min_val) / num_bins
+                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+                final_val = bin_center + offset.squeeze(-1) * bin_width
+                return final_val.clamp(min_val, max_val)
+                
+            elif param_name == "pre_delay":
+                # 0.0 ~ 0.1 범위 (fined_presets 데이터 기준)
+                min_val, max_val = 0.0, 0.1
+                bin_width = (max_val - min_val) / num_bins
+                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+                final_val = bin_center + offset.squeeze(-1) * bin_width
+                return final_val.clamp(min_val, max_val)
+                
+            elif param_name in ["diffusion", "damping", "wet_gain"]:
+                # 0.0 ~ 1.0 범위 (fined_presets와 일치)
+                min_val, max_val = 0.0, 1.0
+                bin_width = (max_val - min_val) / num_bins
+                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+                final_val = bin_center + offset.squeeze(-1) * bin_width
+                return final_val.clamp(min_val, max_val)
+                
+        elif self.effect_name == "distortion":
+            if param_name == "gain":
+                # 1.0 ~ 10.0 범위 (선형)
+                min_val, max_val = 1.0, 10.0
+                bin_width = (max_val - min_val) / num_bins
+                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+                final_val = bin_center + offset.squeeze(-1) * bin_width
+                return final_val.clamp(min_val, max_val)
+                
+            elif param_name == "color":
+                # -1.0 ~ 1.0 범위 (선형)
+                min_val, max_val = -1.0, 1.0
+                bin_width = (max_val - min_val) / num_bins
+                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+                final_val = bin_center + offset.squeeze(-1) * bin_width
+                return final_val.clamp(min_val, max_val)
+                
+        elif self.effect_name == "pitch":
+            if param_name == "scale":
+                # 분류 전용이므로 여기서는 사용되지 않음 (forward에서 직접 매핑)
+                return torch.argmax(class_logits, dim=-1, keepdim=True).float() - 12.0
+        
+        # 기본값 (0.0 ~ 1.0)
+        min_val, max_val = 0.0, 1.0
+        bin_width = (max_val - min_val) / num_bins
+        bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+        final_val = bin_center + offset.squeeze(-1) * bin_width
+        return final_val.clamp(min_val, max_val)
     
     def _apply_parameter_constraints(self, param_name: str, raw_value: torch.Tensor) -> torch.Tensor:
         """Apply realistic constraints to parameters"""
@@ -238,7 +488,7 @@ class EffectDecoderBlock(nn.Module):
             elif param_name == "damping":
                 # Damping: 0 to 1
                 return torch.sigmoid(raw_value)
-            elif param_name in ["wet_gain", "dry_gain"]:
+            elif param_name == "wet_gain":
                 # Gain levels: 0 to 1
                 return torch.sigmoid(raw_value)
                 
@@ -289,11 +539,11 @@ class ParallelPresetDecoder(nn.Module):
         self.shared_encoder = nn.Sequential(
             nn.Linear(text_embedding_dim, shared_hidden_dim),
             nn.LayerNorm(shared_hidden_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(shared_hidden_dim, shared_hidden_dim),
             nn.LayerNorm(shared_hidden_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout)
         )
         
@@ -393,70 +643,118 @@ class ParallelPresetDecoder(nn.Module):
         distortion_params = self.distortion_decoder(dist_features)
         pitch_params = self.pitch_decoder(pitch_features)
         
-        # Format as preset dictionary
+        # Format as preset dictionary (exclude pitch from final return)
         if self.output_format == "differentiable":
             preset = {
                 "equalizer": self._format_eq_params_diff(eq_params),
                 "reverb": self._format_reverb_params_diff(reverb_params),
                 "distortion": self._format_distortion_params_diff(distortion_params),
-                "pitch": self._format_pitch_params_diff(pitch_params)
+                # "pitch": self._format_pitch_params_diff(pitch_params)
             }
         else:  # pedalboard format (backward compatibility)
             preset = {
                 "Equalizer": self._format_eq_params_pedalboard(eq_params),
                 "Reverb": self._format_reverb_params_pedalboard(reverb_params),
                 "Distortion": self._format_distortion_params_pedalboard(distortion_params),
-                "Pitch": self._format_pitch_params_pedalboard(pitch_params)
+                # "Pitch": self._format_pitch_params_pedalboard(pitch_params)
             }
         
         # ADDITION: Raw tensor concatenation for guide loss computation (맞춘 구조)
         raw_tensors = []
         
+        def _dbg(name: str, t: torch.Tensor):
+            try:
+                if os.getenv("DEBUG_DECODER", "0") == "1":
+                    shape = tuple(t.shape) if hasattr(t, 'shape') else 'NA'
+                    dim = t.dim() if hasattr(t, 'dim') else -1
+                    print(f"[DECODER-DEBUG] {name}: dim={dim}, shape={shape}")
+            except Exception:
+                pass
+        
         # EQ parameters (5 bands * 4 params = 20)
         for band in range(1, 6):
-            raw_tensors.append(eq_params[f"band_{band}_freq"])
-            raw_tensors.append(eq_params[f"band_{band}_gain"])
-            raw_tensors.append(eq_params[f"band_{band}_q"])
+            f = eq_params[f"band_{band}_freq"]
+            g = eq_params[f"band_{band}_gain"]
+            qv = eq_params[f"band_{band}_q"]
+            _dbg(f"band_{band}_freq", f)
+            _dbg(f"band_{band}_gain", g)
+            _dbg(f"band_{band}_q", qv)
+            raw_tensors.append(f)
+            raw_tensors.append(g)
+            raw_tensors.append(qv)
             # Convert filter type probabilities to single value (argmax)
             filter_type_probs = eq_params[f"band_{band}_filter_type"]
             filter_type_val = torch.argmax(filter_type_probs, dim=-1, keepdim=True).float()
+            _dbg(f"band_{band}_filter_idx", filter_type_val)
             raw_tensors.append(filter_type_val)
         
         # Reverb parameters (5개만 - guide preset과 일치)
-        raw_tensors.extend([
-            reverb_params["room_size"],
-            reverb_params["pre_delay"], 
-            reverb_params["diffusion"],
-            reverb_params["damping"],
-            reverb_params["wet_gain"]
-            # dry_gain 제외
-        ])
+        rs = reverb_params["room_size"]
+        pd = reverb_params["pre_delay"]
+        df = reverb_params["diffusion"]
+        dm = reverb_params["damping"]
+        wg = reverb_params["wet_gain"]
+        _dbg("room_size", rs)
+        _dbg("pre_delay", pd)
+        _dbg("diffusion", df)
+        _dbg("damping", dm)
+        _dbg("wet_gain", wg)
+        raw_tensors.extend([rs, pd, df, dm, wg])
         
         # Distortion parameters (2개만 - guide preset과 일치)
-        raw_tensors.extend([
-            distortion_params["gain"],
-            distortion_params["color"]  # color 파라미터 사용
-        ])
+        dg = distortion_params["gain"]
+        dc = distortion_params["color"]
+        _dbg("dist_gain", dg)
+        _dbg("dist_color", dc)
+        raw_tensors.extend([dg, dc])
         
         # Pitch parameters (1개만 - guide preset과 일치)
-        raw_tensors.extend([
-            pitch_params["scale"]  # scale 파라미터 사용
-        ])
+        # ps = pitch_params["scale"]
+        # _dbg("pitch_semitone", ps)
+        # raw_tensors.extend([ps])
         
-        # Concatenate all raw tensors (총 28개: 20 + 5 + 2 + 1)
-        raw_params_tensor = torch.cat(raw_tensors, dim=-1)  # (batch_size, 28)
+        # Concatenate all raw tensors (총 28개: 20 + 5 + 2 + 1) --> 27개(pitch 제외)
+        try:
+            raw_params_tensor = torch.cat(raw_tensors, dim=-1)  # (batch_size, 27)
+        except Exception as e:
+            print(f"[DECODER-DEBUG] torch.cat failed: {e}")
+            for idx, t in enumerate(raw_tensors):
+                _dbg(f"raw_tensors[{idx}]", t)
+            raise
         
         # Add raw tensor to output
         preset["_raw_params"] = raw_params_tensor
+
+        # 보조 출력: 하이브리드 헤드 로짓/오프셋 제공 (loss에서 사용)
+        hybrid_aux = {"eq": {}, "reverb": {}, "distortion": {}} #, "pitch": {}}
+        # EQ: 각 밴드의 freq/gain/q 로짓/오프셋
+        for band in range(1, 6):
+            band_key = f"band_{band}"
+            band_dict = {}
+            # 존재하는 키만 채움 (안전)
+            for name in ["freq", "gain", "q"]:
+                logit_key = f"{band_key}_{name}_logits"
+                offset_key = f"{band_key}_{name}_offset"
+                if logit_key in eq_params:
+                    band_dict[f"{name}_logits"] = eq_params[logit_key]
+                if offset_key in eq_params:
+                    band_dict[f"{name}_offset"] = eq_params[offset_key]
+            if band_dict:
+                hybrid_aux["eq"][band_key] = band_dict
+
+        # Reverb/Distortion/Pitch: *_class / *_offset 보존
+        for effect_name, params in [("reverb", reverb_params), ("distortion", distortion_params)]: #, ("pitch", pitch_params)]:
+            effect_aux = {}
+            for k, v in params.items():
+                if k.endswith("_class") or k.endswith("_offset"):
+                    effect_aux[k] = v
+            hybrid_aux[effect_name] = effect_aux
+
+        preset["_hybrid"] = hybrid_aux
         
         # 파라미터 범위 검증 및 로깅 (디버깅용)
         if hasattr(self, '_debug_params') and self._debug_params:
             self._validate_parameter_ranges(preset)
-        
-        # EQ frequency diversity loss 계산 (선택적)
-        if hasattr(self, '_enable_diversity_loss') and self._enable_diversity_loss:
-            diversity_loss = self._compute_frequency_diversity_loss(preset)
-            preset["_diversity_loss"] = diversity_loss
         
         return preset
     
@@ -490,7 +788,6 @@ class ParallelPresetDecoder(nn.Module):
             "diffusion": params["diffusion"],
             "damping": params["damping"],
             "wet_gain": params["wet_gain"],
-            "dry_gain": params["dry_gain"]
         }
     
     def _format_distortion_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
@@ -500,11 +797,12 @@ class ParallelPresetDecoder(nn.Module):
             "color": params["color"]
         }
     
-    def _format_pitch_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
-        """Format pitch parameters into differentiable format"""
-        return {
-            "scale": params["scale"]
-        }
+    # def _format_pitch_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
+    #     """Format pitch parameters into differentiable format"""
+    #     return {
+    #         # pitch는 semitone 정수
+    #         "scale": params["scale"]
+    #     }
     
     # Backward compatibility: pedalboard format methods
     def _format_eq_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
@@ -539,7 +837,6 @@ class ParallelPresetDecoder(nn.Module):
             "diffusion": params["diffusion"],
             "damping": params["damping"],
             "wet_gain": params["wet_gain"]
-            # dry_gain 제외 - guide preset에 없음
         }
     
     def _format_distortion_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
@@ -549,11 +846,12 @@ class ParallelPresetDecoder(nn.Module):
             "color": params["color"]
         }
     
-    def _format_pitch_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
-        """Format pitch parameters into pedalboard format (backward compatibility)"""
-        return {
-            "scale": params["scale"]
-        }
+    # def _format_pitch_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
+    #     """Format pitch parameters into pedalboard format (backward compatibility)"""
+    #     return {
+    #         # pitch는 semitone 정수
+    #         "scale": params["scale"]
+    #     }
     
     def _validate_parameter_ranges(self, preset: Dict) -> None:
         """파라미터 범위 검증 및 경고 출력"""
@@ -592,7 +890,6 @@ class ParallelPresetDecoder(nn.Module):
                 ("diffusion", (0, 1)),
                 ("damping", (0, 1)),
                 ("wet_gain", (0, 1)),
-                ("dry_gain", (0, 1))
             ]:
                 if param_name in reverb_params:
                     val = reverb_params[param_name]
@@ -617,15 +914,15 @@ class ParallelPresetDecoder(nn.Module):
                 if not (-1 <= color_val <= 1):
                     warnings.append(f"Distortion color {color_val:.3f} out of range [-1-1]")
         
-        # Pitch 파라미터 검증
+        # Pitch 파라미터 검증 (semitones)
         if "pitch" in preset:
             pitch_params = preset["pitch"]
             
             scale = pitch_params.get("scale")
             if scale is not None:
                 scale_val = scale.item() if hasattr(scale, 'item') else scale
-                if not (0.5 <= scale_val <= 2.0):
-                    warnings.append(f"Pitch scale {scale_val:.3f} out of range [0.5-2.0]")
+                if not (-12 <= scale_val <= 12):
+                    warnings.append(f"Pitch semitones {scale_val:.3f} out of range [-12, 12]")
         
         # 경고 출력
         if warnings:
@@ -644,275 +941,10 @@ class ParallelPresetDecoder(nn.Module):
         """디버그 모드 비활성화"""
         self._debug_params = False
     
-    def enable_diversity_loss(self):
-        """Frequency diversity loss 활성화"""
-        self._enable_diversity_loss = True
-        print("🎯 EQ frequency diversity loss enabled")
     
-    def disable_diversity_loss(self):
-        """Frequency diversity loss 비활성화"""
-        self._enable_diversity_loss = False
-    
-    def _compute_frequency_diversity_loss(self, preset: Dict) -> torch.Tensor:
-        """EQ 밴드들 간의 frequency 다양성을 장려하는 loss"""
-        try:
-            if "equalizer" not in preset:
-                return torch.tensor(0.0)
-            
-            eq_params = preset["equalizer"]
-            frequencies = []
-            
-            # 모든 밴드의 frequency 수집
-            for band in range(1, 6):
-                band_key = f"band_{band}"
-                if band_key in eq_params and "center_freq" in eq_params[band_key]:
-                    freq = eq_params[band_key]["center_freq"]
-                    frequencies.append(freq)
-            
-            if len(frequencies) < 2:
-                return torch.tensor(0.0)
-            
-            # Frequency들을 로그 스케일로 변환
-            log_frequencies = torch.stack([torch.log(f + 1e-6) for f in frequencies])
-            
-            # 모든 frequency 쌍 간의 거리 계산
-            num_freqs = len(frequencies)
-            diversity_loss = torch.tensor(0.0)
-            
-            for i in range(num_freqs):
-                for j in range(i + 1, num_freqs):
-                    # 로그 스케일에서의 거리
-                    log_distance = torch.abs(log_frequencies[i] - log_frequencies[j])
-                    
-                    # 너무 가까운 frequency들에 페널티 (로그 스케일에서 0.5 이하)
-                    penalty = torch.exp(-log_distance * 2.0)  # 가까울수록 큰 페널티
-                    diversity_loss += penalty
-            
-            # 평균 페널티 반환
-            num_pairs = num_freqs * (num_freqs - 1) / 2
-            return diversity_loss / num_pairs
-            
-        except Exception as e:
-            return torch.tensor(0.0)
 
 
-# ===============================================
-# Diffusion-based Parameter Generation (Advanced)
-# ===============================================
 
-class DiffusionPresetGenerator(nn.Module):
-    """
-    Diffusion model for generating audio effect parameters
-    
-    This approach treats parameter generation as a denoising process,
-    potentially producing more diverse and realistic parameter combinations.
-    """
-    
-    def __init__(self,
-                 text_embedding_dim: int = 1024,
-                 param_dim: int = 16,  # Total number of parameters
-                 hidden_dim: int = 512,
-                 num_timesteps: int = 1000):
-        super().__init__()
-        
-        self.param_dim = param_dim
-        self.num_timesteps = num_timesteps
-        
-        # Noise prediction network
-        self.noise_predictor = nn.Sequential(
-            nn.Linear(param_dim + text_embedding_dim + 1, hidden_dim),  # +1 for timestep
-            nn.LayerNorm(hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, param_dim)
-        )
-        
-        # Timestep embedding
-        self.timestep_embedding = nn.Embedding(num_timesteps, hidden_dim // 4)
-        
-        # Parameter mapping heads (same as parallel decoder)
-        self.param_mapper = self._build_param_mapper()
-    
-    def _build_param_mapper(self):
-        """Map raw parameters to effect-specific parameters"""
-        return nn.ModuleDict({
-            'eq_freq_1': nn.Linear(1, 1),
-            'eq_gain_1': nn.Linear(1, 1),
-            'eq_q_1': nn.Linear(1, 1),
-            'eq_freq_2': nn.Linear(1, 1),
-            'eq_gain_2': nn.Linear(1, 1),
-            'eq_q_2': nn.Linear(1, 1),
-            'reverb_room': nn.Linear(1, 1),
-            'reverb_delay': nn.Linear(1, 1),
-            'reverb_diffusion': nn.Linear(1, 1),
-            'reverb_damping': nn.Linear(1, 1),
-            'reverb_wet': nn.Linear(1, 1),
-            'dist_gain': nn.Linear(1, 1),
-            'dist_color': nn.Linear(1, 1),
-            'pitch_scale': nn.Linear(1, 1),
-        })
-    
-    def forward(self, text_embedding: torch.Tensor, num_inference_steps: int = 50) -> Dict:
-        """
-        Generate parameters using diffusion process
-        
-        Args:
-            text_embedding: (batch_size, embedding_dim)
-            num_inference_steps: Number of denoising steps
-            
-        Returns:
-            preset: Generated preset parameters
-        """
-        batch_size = text_embedding.shape[0]
-        device = text_embedding.device
-        
-        # Start with random noise
-        x = torch.randn(batch_size, self.param_dim, device=device)
-        
-        # Denoising process
-        for t in reversed(range(0, self.num_timesteps, self.num_timesteps // num_inference_steps)):
-            timestep = torch.full((batch_size,), t, device=device, dtype=torch.long)
-            timestep_emb = self.timestep_embedding(timestep).unsqueeze(1)
-            
-            # Predict noise
-            model_input = torch.cat([
-                x, 
-                text_embedding, 
-                timestep_emb.squeeze(1)
-            ], dim=1)
-            
-            predicted_noise = self.noise_predictor(model_input)
-            
-            # Denoising step (simplified DDPM)
-            if t > 0:
-                noise = torch.randn_like(x)
-                alpha = 0.999  # Simplified noise schedule
-                x = (x - predicted_noise) * alpha + noise * (1 - alpha)
-            else:
-                x = x - predicted_noise
-        
-        # Map to preset format
-        return self._map_to_preset(x)
-    
-    def _map_to_preset(self, raw_params: torch.Tensor) -> Dict:
-        """Map raw parameters to preset format"""
-        # Implementation similar to ParallelPresetDecoder
-        # This is a simplified version
-        preset = {
-            "Equalizer": {
-                1: {"frequency": 1000, "Gain": 0, "Q": 1, "Filter-type": "bell"},
-                2: {"frequency": 5000, "Gain": 0, "Q": 1, "Filter-type": "high-shelf"}
-            },
-            "Reverb": {"Room Size": 5, "Pre Delay": 0.1, "Diffusion": 0.5, "Damping": 0.5, "Wet Gain": 0.3},
-            "Distortion": {"Gain": 10, "Color": 0.5},
-            "Pitch": {"Scale": 0}
-        }
-        return preset
-
-
-# ===============================================
-# Transformer-based Parameter Prediction
-# ===============================================
-
-class TransformerPresetGenerator(nn.Module):
-    """
-    Transformer-based approach treating parameters as a sequence
-    
-    This approach models parameter generation as sequence-to-sequence translation:
-    Text tokens → Parameter tokens
-    """
-    
-    def __init__(self,
-                 text_embedding_dim: int = 1024,
-                 param_vocab_size: int = 1000,  # Discretized parameter values
-                 d_model: int = 512,
-                 nhead: int = 8,
-                 num_layers: int = 6):
-        super().__init__()
-        
-        self.d_model = d_model
-        self.param_vocab_size = param_vocab_size
-        
-        # Project text embedding to transformer dimension
-        self.text_proj = nn.Linear(text_embedding_dim, d_model)
-        
-        # Parameter embeddings
-        self.param_embedding = nn.Embedding(param_vocab_size, d_model)
-        
-        # Transformer decoder
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=d_model * 4,
-            dropout=0.1,
-            batch_first=True
-        )
-        self.transformer = nn.TransformerDecoder(decoder_layer, num_layers)
-        
-        # Output projection
-        self.output_proj = nn.Linear(d_model, param_vocab_size)
-        
-        # Parameter sequence length (number of parameters to generate)
-        self.max_param_length = 16
-    
-    def forward(self, text_embedding: torch.Tensor) -> Dict:
-        """
-        Generate parameters using transformer
-        
-        Args:
-            text_embedding: (batch_size, embedding_dim)
-            
-        Returns:
-            preset: Generated preset parameters
-        """
-        batch_size = text_embedding.shape[0]
-        device = text_embedding.device
-        
-        # Project text embedding
-        text_features = self.text_proj(text_embedding).unsqueeze(1)  # (batch_size, 1, d_model)
-        
-        # Generate parameters autoregressively
-        generated_params = []
-        current_input = torch.zeros(batch_size, 1, dtype=torch.long, device=device)
-        
-        for i in range(self.max_param_length):
-            # Embed current input
-            embedded_input = self.param_embedding(current_input)
-            
-            # Pass through transformer
-            output = self.transformer(embedded_input, text_features)
-            
-            # Predict next parameter
-            logits = self.output_proj(output[:, -1:, :])
-            next_param = torch.argmax(logits, dim=-1)
-            
-            generated_params.append(next_param)
-            current_input = torch.cat([current_input, next_param], dim=1)
-        
-        # Convert discrete parameters to continuous values and format as preset
-        return self._discrete_to_preset(torch.cat(generated_params, dim=1))
-    
-    def _discrete_to_preset(self, discrete_params: torch.Tensor) -> Dict:
-        """Convert discrete parameter tokens to preset format"""
-        # Convert discrete values to continuous parameters
-        continuous_params = discrete_params.float() / self.param_vocab_size
-        
-        # Map to preset (simplified)
-        preset = {
-            "Equalizer": {
-                1: {"frequency": 1000, "Gain": 0, "Q": 1, "Filter-type": "bell"},
-                2: {"frequency": 5000, "Gain": 0, "Q": 1, "Filter-type": "high-shelf"}
-            },
-            "Reverb": {"Room Size": 5, "Pre Delay": 0.1, "Diffusion": 0.5, "Damping": 0.5, "Wet Gain": 0.3},
-            "Distortion": {"Gain": 10, "Color": 0.5},
-            "Pitch": {"Scale": 0}
-        }
-        return preset
 
 
 # ===============================================
@@ -936,10 +968,6 @@ class PresetGeneratorFactory:
         """
         if model_type == "parallel":
             return ParallelPresetDecoder(**kwargs)
-        elif model_type == "diffusion":
-            return DiffusionPresetGenerator(**kwargs)
-        elif model_type == "transformer":
-            return TransformerPresetGenerator(**kwargs)
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 

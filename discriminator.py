@@ -16,15 +16,15 @@ import numpy as np
 
 class PresetDiscriminator(nn.Module):
     """
-    Preset 파라미터(28개)를 입력으로 받아 Real/Fake를 판별하는 Discriminator
+    Preset 파라미터(27개)를 입력으로 받아 Real/Fake를 판별하는 Discriminator
     
     Architecture:
-    - Input: 28개 preset 파라미터 (normalized)
+    - Input: 27개 preset 파라미터 (normalized)
     - Output: Real/Fake probability (0~1)
     - 작고 빠른 네트워크로 설계 (Generator보다 학습 속도 조절 가능)
     """
     
-    def __init__(self, input_dim=28, hidden_dims=[128, 64, 32], dropout_rate=0.3):
+    def __init__(self, input_dim=27, hidden_dims=[128, 64, 32], dropout_rate=0.3):
         super(PresetDiscriminator, self).__init__()
         
         self.input_dim = input_dim
@@ -85,14 +85,14 @@ class PresetDiscriminator(nn.Module):
     def forward(self, preset_params):
         """
         Args:
-            preset_params: [batch_size, 28] - 정규화된 preset 파라미터
+            preset_params: [batch_size, 27] - 정규화된 preset 파라미터
             
         Returns:
             torch.Tensor: [batch_size, 1] - Real 확률 (0~1)
         """
         # 입력 차원 확인
         if preset_params.dim() == 1:
-            preset_params = preset_params.unsqueeze(0)  # [28] -> [1, 28]
+            preset_params = preset_params.unsqueeze(0)  # [27] -> [1, 27]
         
         batch_size = preset_params.size(0)
         
@@ -112,8 +112,8 @@ class PresetDiscriminator(nn.Module):
         Discriminator를 위한 적대적 손실 계산
         
         Args:
-            real_params: [batch_size, 28] - 실제 GT 파라미터
-            fake_params: [batch_size, 28] - 생성된 파라미터 (detached)
+            real_params: [batch_size, 27] - 실제 GT 파라미터
+            fake_params: [batch_size, 27] - 생성된 파라미터 (detached)
             label_smoothing: float - 레이블 스무딩 강도
             
         Returns:
@@ -146,7 +146,7 @@ class PresetDiscriminator(nn.Module):
         Generator를 위한 적대적 손실 계산
         
         Args:
-            fake_params: [batch_size, 28] - 생성된 파라미터 (gradient 유지)
+            fake_params: [batch_size, 27] - 생성된 파라미터 (gradient 유지)
             
         Returns:
             torch.Tensor: Generator adversarial loss
@@ -259,7 +259,7 @@ def create_discriminator(config=None):
     """
     if config is None:
         config = {
-            'input_dim': 28,
+            'input_dim': 27,
             'hidden_dims': [128, 64, 32],
             'dropout_rate': 0.3
         }

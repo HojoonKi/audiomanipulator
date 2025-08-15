@@ -817,24 +817,17 @@ class TunedCLAPPipeline(nn.Module):
         Returns:
             outputs: Dictionary containing processed results
         """
-        batch_size = len(texts)
         
         # 1. Text encoding
         text_embeddings = self.encode_text(texts)
         
-        # 2. Audio preprocessing for CLAP
-        if audio.dim() == 3 and audio.size(1) > 1:  # (batch, channels, samples)
-            audio_mono = audio.mean(dim=1, keepdim=True)  # Convert to mono
-        else:
-            audio_mono = audio
+        # 2. Backbone processing with audio and text
+        backbone_features = self.backbone(texts=texts, llm_hidden=text_embeddings)
         
-        # 3. Backbone processing with audio and text
-        backbone_features = self.backbone(audio_data=audio_mono, llm_hidden=text_embeddings)
-        
-        # 4. Decode to preset parameters
+        # 3. Decode to preset parameters
         preset_params = self.decoder(backbone_features)
         
-        # 5. Audio processing
+        # 4. Audio processing
         processed_audio = self.audio_processor(audio, preset_params)
         
         outputs = {

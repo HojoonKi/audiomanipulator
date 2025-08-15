@@ -46,16 +46,12 @@ from dataset import (
     split_descriptions
 )
 from loss import (
+    compute_batch_hybrid_guide_loss,
     compute_self_supervised_clap_loss,
-    compute_guide_loss,
-    compute_batch_guide_loss,
-    compute_batch_guide_loss_simple,
     compute_batch_guide_loss_normalized_l1,
-    _compute_frequency_regularization_loss,
     extract_guide_values,
     _normalize_parameters_for_loss,
     compute_adversarial_training_loss,
-    compute_diversity_metrics
 )
 from discriminator import create_discriminator
 from typing import List
@@ -144,7 +140,7 @@ def create_model_and_optimizer(args):
     if getattr(args, 'use_adversarial', False):
         print("🎯 적대적 학습용 Discriminator 생성...")
         discriminator = create_discriminator({
-            'input_dim': 28,
+            'input_dim': 27,
             'hidden_dims': [128, 64, 32],
             'dropout_rate': 0.3
         })
@@ -450,7 +446,7 @@ def _log_generated_parameters(generated_preset, guide_preset, epoch):
         # Guide values 추출
         guide_values = extract_guide_values(guide_preset)
         
-        # 파라미터 이름 정의
+        # 파라미터 이름 정의 (pitch 제외)
         param_names = []
         
         # EQ (20개)
@@ -469,29 +465,29 @@ def _log_generated_parameters(generated_preset, guide_preset, epoch):
             "Dist_gain", "Dist_color"
         ])
         
-        # Pitch (1개)
-        param_names.extend([
-            "Pitch_scale"
-        ])
+        # Pitch 제외
         
-        # 파라미터 비교 출력 (처음 10개만)
+        # 파라미터 비교 출력 (처음 10개만) - 길이 정렬
         print("📊 주요 파라미터 비교 (Generated vs Guide):")
-        for i in range(min(10, len(generated_values))):
-            gen_val = generated_values[i]
-            guide_val = guide_values[i] if i < len(guide_values) else 0
+        gen_vec = list(generated_values)[:27]
+        guide_vec = list(guide_values)[:27]
+        for i in range(min(10, len(gen_vec))):
+            gen_val = gen_vec[i]
+            guide_val = guide_vec[i] if i < len(guide_vec) else 0
             diff = abs(gen_val - guide_val)
             
             print(f"  {param_names[i]:12}: {gen_val:8.4f} vs {guide_val:8.4f} (diff: {diff:6.4f})")
         
-        if len(generated_values) > 10:
-            print(f"  ... (총 {len(generated_values)}개 파라미터 중 10개만 표시)")
+        # if len(generated_values) > 10:
+        #     print(f"  ... (총 {len(generated_values)}개 파라미터 중 10개만 표시)")
         
         # 전체 MSE 계산 (원본값)
-        raw_mse = sum((g - t)**2 for g, t in zip(generated_values, guide_values)) / len(generated_values)
+        raw_mse = sum((g - t)**2 for g, t in zip(gen_vec, guide_vec)) / max(1, len(gen_vec))
         
         # 정규화된 MSE 계산
-        generated_tensor = torch.FloatTensor(generated_values).unsqueeze(0)
-        guide_tensor = torch.FloatTensor(guide_values).unsqueeze(0)
+        device = generated_preset["_raw_params"].device if hasattr(generated_preset["_raw_params"], 'device') else torch.device('cpu')
+        generated_tensor = torch.tensor(gen_vec, dtype=torch.float32, device=device).unsqueeze(0)
+        guide_tensor = torch.tensor(guide_vec, dtype=torch.float32, device=device).unsqueeze(0)
         normalized_gen, normalized_guide = _normalize_parameters_for_loss(generated_tensor, guide_tensor)
         normalized_mse = torch.mean((normalized_gen - normalized_guide) ** 2).item()
         
@@ -833,12 +829,7 @@ def pretrain_epoch(model, train_loader, optimizer, accelerator, epoch, args, tea
             if 'preset_params' not in outputs:
                 continue
             
-            # 1. Guide Loss 계산 (사전훈련에서는 정규화된 L1 사용)
-            guide_loss = compute_batch_guide_loss_normalized_l1(
-                model, outputs['preset_params'], valid_guide_presets, accelerator.device
-            )
-            
-            # 2. CLAP Loss 계산 (사전훈련에서도 CLAP 활용)
+            # 1. CLAP Loss 계산 (사전훈련에서도 CLAP 활용)
             clap_loss = compute_self_supervised_clap_loss(
                 fx_model=model,
                 clap_model=teacher_clap,
@@ -847,14 +838,42 @@ def pretrain_epoch(model, train_loader, optimizer, accelerator, epoch, args, tea
                 temperature=0.07
             )
             
-            
-            # 5. Loss 결합 및 정규화 (사전훈련용)
-            guide_weight = 0.6       # Guide L1 loss 가중치
-            clap_weight = 0.4        # CLAP loss 가중치 (사전훈련에서는 낮게)
-            
-            batch_loss = (guide_weight * guide_loss + 
-                         clap_weight * clap_loss  
-                         )
+            # 2. Guide + Adversarial (사전훈련 전용) - 공용 함수 사용
+            #    use_adversarial=False이면 내부에서 guide만 계산하게 할 수도 있지만,
+            #    여기서는 discriminator 존재시에만 adversarial 스텝 수행
+            guide_weight = getattr(args, 'guide_weight', 6.0)
+            adv_weight = getattr(args, 'adversarial_weight', 4.0)
+            clap_weight = 0.4  # 고정 가중치 (필요시 args로 빼기)
+
+            if discriminator is not None and discriminator_optimizer is not None:
+                # G step 손실 조합 (guide 하이브리드 + adversarial)
+                adv_dict = compute_adversarial_training_loss(
+                    model=model,
+                    discriminator=discriminator,
+                    batch_generated_preset=outputs['preset_params'],
+                    batch_guide_presets=valid_guide_presets,
+                    device=accelerator.device,
+                    adversarial_weight=adv_weight,
+                    guide_weight=guide_weight,
+                    use_feature_matching=args.use_feature_matching,
+                    guide_mode='hybrid',
+                    lambda_regression=0.3,
+                    use_gated_offset=True,
+                    feature_matching_weight=0.1,
+                    discriminator_optimizer=discriminator_optimizer,
+                    accelerator=accelerator,
+                )
+                batch_loss = adv_dict['total_loss'] + clap_weight * clap_loss
+            else:
+                # Adversarial 미사용: 하이브리드 guide만 사용
+                hybrid = compute_batch_hybrid_guide_loss(
+                    batch_generated_preset=outputs['preset_params'],
+                    batch_guide_presets=valid_guide_presets,
+                    device=accelerator.device,
+                    lambda_regression=0.3,
+                    use_gated_offset=True,
+                )
+                batch_loss = guide_weight * hybrid['total_loss'] + clap_weight * clap_loss
             
             # 첫 번째 배치에서만 파라미터 출력 (에포크당 한 번)
             if not param_logged_this_epoch and accelerator.is_main_process and len(valid_guide_presets) > 0:
@@ -969,7 +988,7 @@ def main():
     parser.add_argument('--data_path', type=str, default='/app', help='데이터 경로')
     parser.add_argument('--batch_size', type=int, default=64, help='배치 크기')
     parser.add_argument('--num_epochs', type=int, default=400, help='에포크 수')
-    parser.add_argument('--learning_rate', type=float, default=1e-4, help='학습률')
+    parser.add_argument('--learning_rate', type=float, default=1e-3, help='학습률')
     parser.add_argument('--sample_rate', type=int, default=44100, help='샘플링 레이트')
     parser.add_argument('--audio_length', type=float, default=5.0, help='오디오 길이')
     parser.add_argument('--seed', type=int, default=42, help='랜덤 시드')
@@ -977,21 +996,21 @@ def main():
     parser.add_argument('--logging_dir', type=str, default='/app/output/logs', help='TensorBoard 로그 디렉토리')
     
     # 사전 훈련 관련
-    parser.add_argument('--enable_pretrain', action='store_true', default=True,
+    parser.add_argument('--enable_pretrain', action='store_true', default=False,
                        help='Guide preset으로 사전 훈련 활성화')
     parser.add_argument('--pretrain_epochs', type=int, default=40,
                        help='사전 훈련 에포크 수')
     parser.add_argument('--pretrain_batch_size', type=int, default=2,
                        help='사전 훈련 배치 크기')
-    parser.add_argument('--pretrain_lr', type=float, default=4e-4,
+    parser.add_argument('--pretrain_lr', type=float, default=2e-3,
                        help='사전 훈련 학습률')
     
     # 적대적 학습 관련
     parser.add_argument('--use_adversarial', action='store_true', default=True,
                        help='적대적 학습(GAN) 사용')
-    parser.add_argument('--adversarial_weight', type=float, default=1.0,
+    parser.add_argument('--adversarial_weight', type=float, default=0.4,
                        help='적대적 손실 가중치')
-    parser.add_argument('--guide_weight', type=float, default=1.0,
+    parser.add_argument('--guide_weight', type=float, default=0.6,
                        help='가이드 손실 가중치')
     parser.add_argument('--use_feature_matching', action='store_true', default=True,
                        help='Feature matching 손실 사용')
@@ -1090,6 +1109,7 @@ def main():
     except Exception as e:
         if accelerator.is_main_process:
             print(f"⚠️ 워밍업 중 경고(계속 진행): {e}")
+            traceback.print_exc()
     finally:
         model.train()
 
@@ -1146,7 +1166,7 @@ def main():
     # 1. 사전 훈련 실행 (활성화된 경우)
     if args.enable_pretrain:
         # 사전훈련에서는 자체적으로 discriminator optimizer를 생성하므로 None 전달
-        simple_pretrain(model, optimizer, accelerator, args, teacher_clap, discriminator, None)
+        simple_pretrain(model, optimizer, accelerator, args, teacher_clap, discriminator, discriminator_optimizer)
         
         if accelerator.is_main_process:
             print("🔄 사전 훈련 완료 - 일반 훈련 시작")
