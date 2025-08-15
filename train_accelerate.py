@@ -986,7 +986,7 @@ def main():
     
     # 기본 설정
     parser.add_argument('--data_path', type=str, default='/app', help='데이터 경로')
-    parser.add_argument('--batch_size', type=int, default=64, help='배치 크기')
+    parser.add_argument('--batch_size', type=int, default=32, help='배치 크기')
     parser.add_argument('--num_epochs', type=int, default=400, help='에포크 수')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='학습률')
     parser.add_argument('--sample_rate', type=int, default=44100, help='샘플링 레이트')
