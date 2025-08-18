@@ -21,7 +21,8 @@ fined_presets = [
             "pre_delay": 0.04,
             "diffusion": 0.8,
             "damping": 0.5,
-            "wet_gain": 0.7,
+            "wet_gain": 0.3,
+            "decay_time": 3,
         },
         "Distortion": {
             "gain": 8.0,
@@ -46,6 +47,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1.5,
@@ -70,6 +72,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.75,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12.0,
@@ -94,6 +97,7 @@ fined_presets = [
             "diffusion": 0.0,
             "damping": 1.0,
             "wet_gain": 0.0,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -118,10 +122,11 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
-            "gain": 16,
-            "color": 0.9,
+            "gain": 7,
+            "color": 0.4,
         },
         "Pitch": {
             "scale": 0,
@@ -142,6 +147,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -166,6 +172,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -190,6 +197,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -214,6 +222,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -238,6 +247,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -262,6 +272,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -286,6 +297,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -310,6 +322,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -334,6 +347,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -358,6 +372,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.95,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -382,6 +397,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.4,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -406,6 +422,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -430,6 +447,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -454,6 +472,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -478,6 +497,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -502,6 +522,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -526,6 +547,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.7,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -550,6 +572,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -574,6 +597,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -598,6 +622,7 @@ fined_presets = [
             "diffusion": 0.75,
             "damping": 0.6,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -622,6 +647,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -646,6 +672,7 @@ fined_presets = [
             "diffusion": 0.65,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -670,6 +697,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -694,6 +722,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -718,6 +747,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -742,6 +772,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.85,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -766,6 +797,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -790,6 +822,7 @@ fined_presets = [
             "diffusion": 0.75,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -814,6 +847,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -838,6 +872,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -862,6 +897,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -886,6 +922,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -910,6 +947,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -934,6 +972,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -958,6 +997,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -982,6 +1022,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.95,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1006,6 +1047,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -1030,6 +1072,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -1054,6 +1097,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1078,6 +1122,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1102,6 +1147,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -1126,6 +1172,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -1150,6 +1197,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -1174,6 +1222,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -1198,6 +1247,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -1222,6 +1272,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 14,
@@ -1246,6 +1297,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1270,6 +1322,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -1294,6 +1347,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -1318,6 +1372,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -1342,6 +1397,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -1366,6 +1422,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1390,6 +1447,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.8,
             "wet_gain": 0.12,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -1414,6 +1472,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.7,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1438,6 +1497,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -1462,6 +1522,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1486,6 +1547,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1510,6 +1572,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -1534,6 +1597,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1558,6 +1622,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -1582,6 +1647,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -1606,6 +1672,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -1630,6 +1697,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -1654,6 +1722,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -1678,6 +1747,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -1702,6 +1772,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -1726,6 +1797,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -1750,6 +1822,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -1774,6 +1847,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -1798,6 +1872,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -1822,6 +1897,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1846,6 +1922,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.8,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -1870,6 +1947,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -1894,6 +1972,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.3,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1918,6 +1997,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -1942,6 +2022,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -1966,6 +2047,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -1990,6 +2072,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -2014,6 +2097,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2038,6 +2122,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -2062,6 +2147,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -2086,6 +2172,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.7,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -2110,6 +2197,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -2134,6 +2222,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2158,6 +2247,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 14,
@@ -2182,6 +2272,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -2206,6 +2297,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -2230,6 +2322,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2254,6 +2347,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -2278,6 +2372,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -2302,6 +2397,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -2326,6 +2422,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -2350,6 +2447,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -2374,6 +2472,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -2398,6 +2497,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -2422,6 +2522,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2446,6 +2547,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -2470,6 +2572,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -2494,6 +2597,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -2518,6 +2622,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -2542,6 +2647,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2566,6 +2672,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -2590,6 +2697,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.01,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -2614,6 +2722,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -2638,6 +2747,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -2662,6 +2772,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2686,6 +2797,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -2710,6 +2822,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -2734,6 +2847,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -2758,6 +2872,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -2782,6 +2897,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -2806,6 +2922,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -2830,6 +2947,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -2854,6 +2972,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -2878,6 +2997,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -2902,6 +3022,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -2926,6 +3047,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -2950,6 +3072,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -2974,6 +3097,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -2998,6 +3122,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3022,6 +3147,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -3046,6 +3172,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -3070,6 +3197,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -3094,6 +3222,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.4,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3118,6 +3247,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3142,6 +3272,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -3166,6 +3297,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.7,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3190,6 +3322,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -3214,6 +3347,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3238,6 +3372,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -3262,6 +3397,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -3286,6 +3422,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -3310,6 +3447,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3334,6 +3472,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -3358,6 +3497,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3382,6 +3522,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 25,
@@ -3406,6 +3547,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -3430,6 +3572,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -3454,6 +3597,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -3478,6 +3622,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -3502,6 +3647,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3526,6 +3672,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.85,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -3550,6 +3697,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -3574,6 +3722,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3598,6 +3747,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -3622,6 +3772,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -3646,6 +3797,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -3670,6 +3822,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3694,6 +3847,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3718,6 +3872,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.35,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3742,6 +3897,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -3766,6 +3922,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -3790,6 +3947,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -3814,6 +3972,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3838,6 +3997,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -3862,6 +4022,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -3886,6 +4047,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -3910,6 +4072,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -3934,6 +4097,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -3958,6 +4122,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -3982,6 +4147,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -4006,6 +4172,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -4030,6 +4197,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -4054,6 +4222,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -4078,6 +4247,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -4102,6 +4272,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -4126,6 +4297,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3.0,
@@ -4150,6 +4322,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -4174,6 +4347,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4198,6 +4372,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -4222,6 +4397,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -4246,6 +4422,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4270,6 +4447,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4294,6 +4472,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -4318,6 +4497,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4342,6 +4522,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -4366,6 +4547,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.4,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -4390,6 +4572,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4414,6 +4597,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4438,6 +4622,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.3,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -4462,6 +4647,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -4486,6 +4672,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -4510,6 +4697,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4534,6 +4722,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -4558,6 +4747,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 14,
@@ -4582,6 +4772,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -4606,6 +4797,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -4630,6 +4822,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.01,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -4654,6 +4847,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -4678,6 +4872,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4702,6 +4897,7 @@ fined_presets = [
             "diffusion": 0.85,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -4726,6 +4922,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4750,6 +4947,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4774,6 +4972,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.4,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -4798,6 +4997,7 @@ fined_presets = [
             "diffusion": 0.85,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -4822,6 +5022,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4846,6 +5047,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -4870,6 +5072,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -4894,6 +5097,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -4918,6 +5122,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 22,
@@ -4942,6 +5147,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -4966,6 +5172,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -4990,6 +5197,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.2,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -5014,6 +5222,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.01,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -5038,6 +5247,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5062,6 +5272,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.03,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -5086,6 +5297,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.9,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5110,6 +5322,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -5134,6 +5347,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -5158,6 +5372,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.4,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -5182,6 +5397,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -5206,6 +5422,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -5230,6 +5447,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -5254,6 +5472,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5278,6 +5497,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5302,6 +5522,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.7,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -5326,6 +5547,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -5350,6 +5572,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -5374,6 +5597,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 25,
@@ -5398,6 +5622,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -5422,6 +5647,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -5446,6 +5672,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.35,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -5470,6 +5697,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -5494,6 +5722,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.08,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -5518,6 +5747,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -5542,6 +5772,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -5566,6 +5797,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5590,6 +5822,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -5614,6 +5847,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5638,6 +5872,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.7,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5662,6 +5897,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.95,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -5686,6 +5922,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -5710,6 +5947,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -5734,6 +5972,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10.0,
@@ -5758,6 +5997,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -5782,6 +6022,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -5806,6 +6047,7 @@ fined_presets = [
             "diffusion": 0.75,
             "damping": 0.45,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -5830,6 +6072,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -5854,6 +6097,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5878,6 +6122,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -5902,6 +6147,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -5926,6 +6172,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -5950,6 +6197,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -5974,6 +6222,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -5998,6 +6247,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -6022,6 +6272,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 22,
@@ -6046,6 +6297,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -6070,6 +6322,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -6094,6 +6347,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.08,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6118,6 +6372,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -6142,6 +6397,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.6,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -6166,6 +6422,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -6190,6 +6447,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 14,
@@ -6214,6 +6472,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -6238,6 +6497,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.8,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6262,6 +6522,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6286,6 +6547,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -6310,6 +6572,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.7,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6334,6 +6597,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6358,6 +6622,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -6382,6 +6647,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -6406,6 +6672,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -6430,6 +6697,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -6454,6 +6722,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -6478,6 +6747,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -6502,6 +6772,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6526,6 +6797,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.03,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -6550,6 +6822,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -6574,6 +6847,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -6598,6 +6872,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -6622,6 +6897,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -6646,6 +6922,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.08,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -6670,6 +6947,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -6694,6 +6972,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -6718,6 +6997,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -6742,6 +7022,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6766,6 +7047,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6790,6 +7072,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.95,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -6814,6 +7097,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6838,6 +7122,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -6862,6 +7147,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.8,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6886,6 +7172,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -6910,6 +7197,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -6934,6 +7222,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -6958,6 +7247,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -6982,6 +7272,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -7006,6 +7297,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7030,6 +7322,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -7054,6 +7347,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -7078,6 +7372,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -7102,6 +7397,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -7126,6 +7422,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -7150,6 +7447,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -7174,6 +7472,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7198,6 +7497,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -7222,6 +7522,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.1,
             "wet_gain": 0.9,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0.0,
@@ -7246,6 +7547,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -7270,6 +7572,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -7294,6 +7597,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -7318,6 +7622,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -7342,6 +7647,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -7366,6 +7672,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -7390,6 +7697,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -7414,6 +7722,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -7438,6 +7747,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -7462,6 +7772,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -7486,6 +7797,7 @@ fined_presets = [
             "diffusion": 0.0,
             "damping": 1.0,
             "wet_gain": 0.0,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -7510,6 +7822,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.7,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -7534,6 +7847,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -7558,6 +7872,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -7582,6 +7897,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -7606,6 +7922,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -7630,6 +7947,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -7654,6 +7972,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -7678,6 +7997,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 22,
@@ -7702,6 +8022,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -7726,6 +8047,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -7750,6 +8072,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -7774,6 +8097,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7798,6 +8122,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7822,6 +8147,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.08,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -7846,6 +8172,7 @@ fined_presets = [
             "diffusion": 0.75,
             "damping": 0.3,
             "wet_gain": 0.75,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -7870,6 +8197,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7894,6 +8222,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7918,6 +8247,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.4,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -7942,6 +8272,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -7966,6 +8297,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -7990,6 +8322,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.08,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -8014,6 +8347,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -8038,6 +8372,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -8062,6 +8397,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.75,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -8086,6 +8422,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.9,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -8110,6 +8447,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8134,6 +8472,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.55,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -8158,6 +8497,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.8,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -8182,6 +8522,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -8206,6 +8547,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -8230,6 +8572,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -8254,6 +8597,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8278,6 +8622,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.08,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -8302,6 +8647,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -8326,6 +8672,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -8350,6 +8697,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -8374,6 +8722,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -8398,6 +8747,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.8,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -8422,6 +8772,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8446,6 +8797,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -8470,6 +8822,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -8494,6 +8847,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -8518,6 +8872,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -8542,6 +8897,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -8566,6 +8922,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8590,6 +8947,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.25,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -8614,6 +8972,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8638,6 +8997,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -8662,6 +9022,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 22,
@@ -8686,6 +9047,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -8710,6 +9072,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -8734,6 +9097,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -8758,6 +9122,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8782,6 +9147,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -8806,6 +9172,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -8830,6 +9197,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.8,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -8854,6 +9222,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -8878,6 +9247,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.03,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8902,6 +9272,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -8926,6 +9297,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.85,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -8950,6 +9322,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.35,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -8974,6 +9347,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -8998,6 +9372,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 1.0,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -9022,6 +9397,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -9046,6 +9422,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -9070,6 +9447,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.35,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -9094,6 +9472,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -9118,6 +9497,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -9142,6 +9522,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -9166,6 +9547,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -9190,6 +9572,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -9214,6 +9597,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.9,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -9238,6 +9622,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -9262,6 +9647,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -9286,6 +9672,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -9310,6 +9697,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.35,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -9334,6 +9722,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -9358,6 +9747,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -9382,6 +9772,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -9406,6 +9797,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -9430,6 +9822,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -9454,6 +9847,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -9478,6 +9872,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -9502,6 +9897,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.7,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -9526,6 +9922,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -9550,6 +9947,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.8,
             "wet_gain": 0.35,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -9574,6 +9972,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -9598,6 +9997,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -9622,6 +10022,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.85,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 14,
@@ -9646,6 +10047,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -9670,6 +10072,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -9694,6 +10097,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.9,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -9718,6 +10122,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.7,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -9742,6 +10147,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.2,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 9,
@@ -9766,6 +10172,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -9790,6 +10197,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 16,
@@ -9814,6 +10222,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -9838,6 +10247,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.01,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -9862,6 +10272,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -9886,6 +10297,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -9910,6 +10322,7 @@ fined_presets = [
             "diffusion": 0.3,
             "damping": 0.95,
             "wet_gain": 0.05,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -9934,6 +10347,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -9958,6 +10372,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -9982,6 +10397,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -10006,6 +10422,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.45,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -10030,6 +10447,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -10054,6 +10472,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -10078,6 +10497,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.8,
             "wet_gain": 0.15,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -10102,6 +10522,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -10126,6 +10547,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -10150,6 +10572,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.7,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -10174,6 +10597,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -10198,6 +10622,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -10222,6 +10647,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -10246,6 +10672,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 18,
@@ -10270,6 +10697,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.8,
             "wet_gain": 0.1,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -10294,6 +10722,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.4,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 14,
@@ -10318,6 +10747,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.8,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -10342,6 +10772,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -10366,6 +10797,7 @@ fined_presets = [
             "diffusion": 0.1,
             "damping": 0.95,
             "wet_gain": 0.02,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -10390,6 +10822,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -10414,6 +10847,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 20,
@@ -10438,6 +10872,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.6,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -10462,6 +10897,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -10486,6 +10922,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.8,
             "wet_gain": 0.12,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 12,
@@ -10510,6 +10947,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.65,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 22,
@@ -10534,6 +10972,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -10558,6 +10997,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 6,
@@ -10582,6 +11022,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -10606,6 +11047,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -10630,6 +11072,7 @@ fined_presets = [
             "diffusion": 0.05,
             "damping": 1.0,
             "wet_gain": 0.01,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 9,
@@ -10654,6 +11097,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 4,
@@ -10678,6 +11122,7 @@ fined_presets = [
             "diffusion": 0.9,
             "damping": 0.3,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -10702,6 +11147,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.6,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -10726,6 +11172,7 @@ fined_presets = [
             "diffusion": 0.4,
             "damping": 0.6,
             "wet_gain": 0.3,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 10,
@@ -10750,6 +11197,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -10774,6 +11222,7 @@ fined_presets = [
             "diffusion": 0.2,
             "damping": 0.6,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2,
@@ -10798,6 +11247,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.7,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -10822,6 +11272,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -10846,6 +11297,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.8,
             "wet_gain": 0.2,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 1,
@@ -10870,6 +11322,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.5,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 8,
@@ -10894,6 +11347,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.3,
             "wet_gain": 0.8,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 3,
@@ -10918,6 +11372,7 @@ fined_presets = [
             "diffusion": 0.8,
             "damping": 0.4,
             "wet_gain": 0.7,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 7,
@@ -10942,6 +11397,7 @@ fined_presets = [
             "diffusion": 0.6,
             "damping": 0.7,
             "wet_gain": 0.5,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 5,
@@ -10966,6 +11422,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.6,
             "wet_gain": 0.4,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15,
@@ -10990,6 +11447,7 @@ fined_presets = [
             "diffusion": 0.5,
             "damping": 0.6,
             "wet_gain": 0.55,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 2.0,
@@ -11014,6 +11472,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 0,
@@ -11038,6 +11497,7 @@ fined_presets = [
             "diffusion": 0.7,
             "damping": 0.5,
             "wet_gain": 0.6,
+            "decay_time": 1,
         },
         "Distortion": {
             "gain": 15.0,

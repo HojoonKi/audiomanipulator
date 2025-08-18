@@ -60,16 +60,23 @@ class EQBandDecoder(nn.Module):
                  num_layers: int = 2,    # 더 간단한 구조
                  dropout: float = 0.1,
                  band_id: int = 1,
+                 total_bands: int = 6,      # 전체 밴드 수
                  num_freq_bins: int = 256,  # 주파수 분류 빈 개수
                  num_gain_bins: int = 128,  # 게인 분류 빈 개수
                  num_q_bins: int = 64):     # Q factor 분류 빈 개수
         super().__init__()
         
         self.band_id = band_id
+        self.total_bands = total_bands
         self.input_dim = input_dim
         self.num_freq_bins = num_freq_bins
         self.num_gain_bins = num_gain_bins
         self.num_q_bins = num_q_bins
+        
+        # 밴드별 필터 타입 설정
+        self.is_first_band = (band_id == 1)
+        self.is_last_band = (band_id == total_bands)
+        self.is_middle_band = not (self.is_first_band or self.is_last_band)
         
         # 밴드별 특화된 소형 decoder
         layers = []
@@ -99,8 +106,11 @@ class EQBandDecoder(nn.Module):
         self.q_class_head = nn.Linear(hidden_dim, num_q_bins)
         self.q_offset_head = nn.Linear(hidden_dim, 1)
         
-        # Filter type (순수 분류만)
-        self.filter_type_head = nn.Linear(hidden_dim, 5)  # 5 filter types
+        # Filter type (순수 분류만) - 밴드별로 다름
+        if self.is_first_band or self.is_last_band:
+            self.filter_type_head = nn.Linear(hidden_dim, 2)  # 2 filter types (first/last band)
+        else:
+            self.filter_type_head = None  # 중간 밴드는 peaking 고정
         
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -131,9 +141,14 @@ class EQBandDecoder(nn.Module):
         q_offset_raw = self.q_offset_head(hidden)
         q_offset = torch.tanh(q_offset_raw) * 0.5
         
-        # Filter type (순수 분류)
-        filter_type_logits = self.filter_type_head(hidden)
-        filter_type = torch.softmax(filter_type_logits, dim=-1)
+        # Filter type (순수 분류) - 밴드별로 다름
+        if self.filter_type_head is not None:
+            filter_type_logits = self.filter_type_head(hidden)
+            filter_type = torch.softmax(filter_type_logits, dim=-1)
+        else:
+            # 중간 밴드는 peaking 고정 (더미 값)
+            filter_type_logits = torch.zeros(hidden.shape[0], 1, device=hidden.device)
+            filter_type = torch.ones(hidden.shape[0], 1, device=hidden.device)
         
         # 최종 연속값 계산 (추론용) - 모두 [B,1] 컬럼 텐서로 표준화
         freq_final = self._reconstruct_frequency(freq_logits, freq_offset).unsqueeze(-1)
@@ -241,7 +256,7 @@ class EffectDecoderBlock(nn.Module):
         # 기본 빈 개수 설정
         if num_bins_config is None:
             num_bins_config = {
-                'reverb': {'room_size': 64, 'pre_delay': 64, 'diffusion': 64, 'damping': 64, 'wet_gain': 64},
+                'reverb': {'room_size': 64, 'pre_delay': 64, 'diffusion': 64, 'damping': 64, 'wet_gain': 64, 'decay_time': 64},
                 'distortion': {'gain': 64, 'color': 64},
                 # pitch는 -12..+12 총 25개 클래스
                 'pitch': {'scale': 25}
@@ -417,6 +432,14 @@ class EffectDecoderBlock(nn.Module):
                 final_val = bin_center + offset.squeeze(-1) * bin_width
                 return final_val.clamp(min_val, max_val)
                 
+            elif param_name == "decay_time":
+                # 0.1 ~ 10.0 범위 (일반적인 reverb decay time 범위)
+                min_val, max_val = 0.1, 10.0
+                bin_width = (max_val - min_val) / num_bins
+                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
+                final_val = bin_center + offset.squeeze(-1) * bin_width
+                return final_val.clamp(min_val, max_val)
+                
         elif self.effect_name == "distortion":
             if param_name == "gain":
                 # 1.0 ~ 10.0 범위 (선형)
@@ -548,15 +571,16 @@ class ParallelPresetDecoder(nn.Module):
         )
         
         # Parallel effect decoders
-        # EQ: 5개의 독립적인 밴드 decoder
+        # EQ: 6개의 독립적인 밴드 decoder
         self.eq_band_decoders = nn.ModuleList([
             EQBandDecoder(
                 shared_hidden_dim, 
                 decoder_hidden_dim // 2,  # 더 작은 hidden_dim (128)
                 num_decoder_layers - 1,   # 더 간단한 구조 (2 layers)
                 dropout, 
-                band_id=band_id
-            ) for band_id in range(1, 6)  # 5개 밴드
+                band_id=band_id,
+                total_bands=6
+            ) for band_id in range(1, 7)  # 6개 밴드
         ])
         
         # 다른 effect들
@@ -579,8 +603,8 @@ class ParallelPresetDecoder(nn.Module):
                 dropout=dropout,
                 batch_first=True
             )
-            # 9개 effect tokens에 대한 positional encoding 추가
-            self.effect_position_embedding = nn.Parameter(torch.randn(9, shared_hidden_dim) * 0.02)
+            # 10개 effect tokens에 대한 positional encoding 추가 (6개 EQ + 3개 다른 effect)
+            self.effect_position_embedding = nn.Parameter(torch.randn(10, shared_hidden_dim) * 0.02)
     
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, Dict[str, torch.Tensor]]:
         """
@@ -599,8 +623,8 @@ class ParallelPresetDecoder(nn.Module):
         if self.use_cross_attention:
             # Create effect tokens with positional encoding
             batch_size = shared_features.shape[0]
-            # 9개 토큰: 5개 EQ 밴드 + 3개 다른 effect
-            effect_tokens = shared_features.unsqueeze(1).expand(-1, 9, -1)  # (batch_size, 9_effects, dim)
+            # 10개 토큰: 6개 EQ 밴드 + 3개 다른 effect
+            effect_tokens = shared_features.unsqueeze(1).expand(-1, 10, -1)  # (batch_size, 10_effects, dim)
             
             # Add positional encoding to distinguish different effects/bands
             effect_tokens = effect_tokens + self.effect_position_embedding.unsqueeze(0)
@@ -615,24 +639,24 @@ class ParallelPresetDecoder(nn.Module):
             )
             
             # Split attended features for each effect
-            eq_band_features = [attended_features[:, i, :] for i in range(5)]  # 5개 EQ 밴드
-            reverb_features = attended_features[:, 5, :]  # Reverb
-            dist_features = attended_features[:, 6, :]    # Distortion
-            pitch_features = attended_features[:, 7, :]   # Pitch
+            eq_band_features = [attended_features[:, i, :] for i in range(6)]  # 6개 EQ 밴드
+            reverb_features = attended_features[:, 6, :]  # Reverb
+            dist_features = attended_features[:, 7, :]    # Distortion
+            pitch_features = attended_features[:, 8, :]   # Pitch
         else:
             # Use same features for all effects with small perturbations
             if self.training:
                 base_noise = torch.randn_like(shared_features) * 0.005
-                eq_band_features = [shared_features + torch.randn_like(shared_features) * 0.005 for _ in range(5)]
+                eq_band_features = [shared_features + torch.randn_like(shared_features) * 0.005 for _ in range(6)]
                 reverb_features = shared_features + torch.randn_like(shared_features) * 0.005
                 dist_features = shared_features + torch.randn_like(shared_features) * 0.005  
                 pitch_features = shared_features + torch.randn_like(shared_features) * 0.005
             else:
-                eq_band_features = [shared_features for _ in range(5)]
+                eq_band_features = [shared_features for _ in range(6)]
                 reverb_features = dist_features = pitch_features = shared_features
         
         # Parallel decoding
-        # EQ: 5개 밴드 독립적으로 디코딩
+        # EQ: 6개 밴드 독립적으로 디코딩
         eq_params = {}
         for i, eq_band_decoder in enumerate(self.eq_band_decoders):
             band_params = eq_band_decoder(eq_band_features[i])
@@ -671,8 +695,8 @@ class ParallelPresetDecoder(nn.Module):
             except Exception:
                 pass
         
-        # EQ parameters (5 bands * 4 params = 20)
-        for band in range(1, 6):
+        # EQ parameters (6 bands * 4 params = 24)
+        for band in range(1, 7):
             f = eq_params[f"band_{band}_freq"]
             g = eq_params[f"band_{band}_gain"]
             qv = eq_params[f"band_{band}_q"]
@@ -688,18 +712,20 @@ class ParallelPresetDecoder(nn.Module):
             _dbg(f"band_{band}_filter_idx", filter_type_val)
             raw_tensors.append(filter_type_val)
         
-        # Reverb parameters (5개만 - guide preset과 일치)
+        # Reverb parameters (6개 - decay_time 추가)
         rs = reverb_params["room_size"]
         pd = reverb_params["pre_delay"]
         df = reverb_params["diffusion"]
         dm = reverb_params["damping"]
         wg = reverb_params["wet_gain"]
+        dt = reverb_params["decay_time"]
         _dbg("room_size", rs)
         _dbg("pre_delay", pd)
         _dbg("diffusion", df)
         _dbg("damping", dm)
         _dbg("wet_gain", wg)
-        raw_tensors.extend([rs, pd, df, dm, wg])
+        _dbg("decay_time", dt)
+        raw_tensors.extend([rs, pd, df, dm, wg, dt])
         
         # Distortion parameters (2개만 - guide preset과 일치)
         dg = distortion_params["gain"]
@@ -713,9 +739,9 @@ class ParallelPresetDecoder(nn.Module):
         # _dbg("pitch_semitone", ps)
         # raw_tensors.extend([ps])
         
-        # Concatenate all raw tensors (총 28개: 20 + 5 + 2 + 1) --> 27개(pitch 제외)
+        # Concatenate all raw tensors (총 33개: 24 + 6 + 2 + 1) --> 32개(pitch 제외)
         try:
-            raw_params_tensor = torch.cat(raw_tensors, dim=-1)  # (batch_size, 27)
+            raw_params_tensor = torch.cat(raw_tensors, dim=-1)  # (batch_size, 32)
         except Exception as e:
             print(f"[DECODER-DEBUG] torch.cat failed: {e}")
             for idx, t in enumerate(raw_tensors):
@@ -728,7 +754,7 @@ class ParallelPresetDecoder(nn.Module):
         # 보조 출력: 하이브리드 헤드 로짓/오프셋 제공 (loss에서 사용)
         hybrid_aux = {"eq": {}, "reverb": {}, "distortion": {}} #, "pitch": {}}
         # EQ: 각 밴드의 freq/gain/q 로짓/오프셋
-        for band in range(1, 6):
+        for band in range(1, 7):
             band_key = f"band_{band}"
             band_dict = {}
             # 존재하는 키만 채움 (안전)
@@ -763,7 +789,7 @@ class ParallelPresetDecoder(nn.Module):
         eq_params = {}
         
         # Extract parameters for each band
-        for band in range(1, 6):  # 5 bands
+        for band in range(1, 7):  # 6 bands
             band_key = f"band_{band}"
             
             # Get filter type from softmax probabilities
@@ -788,6 +814,7 @@ class ParallelPresetDecoder(nn.Module):
             "diffusion": params["diffusion"],
             "damping": params["damping"],
             "wet_gain": params["wet_gain"],
+            "decay_time": params["decay_time"],
         }
     
     def _format_distortion_params_diff(self, params: Dict[str, torch.Tensor]) -> Dict:
@@ -807,17 +834,24 @@ class ParallelPresetDecoder(nn.Module):
     # Backward compatibility: pedalboard format methods
     def _format_eq_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
         """Format EQ parameters into pedalboard format (backward compatibility)"""
-        filter_types = ["low-shelf", "bell", "high-shelf", "highpass", "lowpass"]  # 5개 타입 지원
         
         pedalboard_params = {}
-        for band in range(1, 6):  # All 5 bands
+        for band in range(1, 7):  # All 6 bands
             # Get filter type from softmax probabilities
             filter_type_probs = params[f"band_{band}_filter_type"]
             filter_type_idx = torch.argmax(filter_type_probs, dim=-1)
             
+            # 밴드별 필터 타입 설정
+            if band == 1:  # 첫 번째 밴드
+                filter_types = ["low-shelf", "highpass"]
+            elif band == 6:  # 마지막 밴드
+                filter_types = ["high-shelf", "lowpass"]
+            else:  # 중간 밴드들
+                filter_types = ["bell"]  # peaking
+            
             # Index 범위 체크 (안전성)
             if filter_type_idx.item() >= len(filter_types):
-                filter_type_idx = torch.tensor(1)  # Default to 'bell'
+                filter_type_idx = torch.tensor(0)  # Default to first option
             filter_type = filter_types[filter_type_idx.item()]
             
             pedalboard_params[band] = {
@@ -836,7 +870,8 @@ class ParallelPresetDecoder(nn.Module):
             "pre_delay": params["pre_delay"],
             "diffusion": params["diffusion"],
             "damping": params["damping"],
-            "wet_gain": params["wet_gain"]
+            "wet_gain": params["wet_gain"],
+            "decay_time": params["decay_time"]
         }
     
     def _format_distortion_params_pedalboard(self, params: Dict[str, torch.Tensor]) -> Dict:
@@ -890,6 +925,7 @@ class ParallelPresetDecoder(nn.Module):
                 ("diffusion", (0, 1)),
                 ("damping", (0, 1)),
                 ("wet_gain", (0, 1)),
+                ("decay_time", (0.1, 10.0)),
             ]:
                 if param_name in reverb_params:
                     val = reverb_params[param_name]

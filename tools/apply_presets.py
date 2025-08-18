@@ -71,6 +71,7 @@ def _build_batch_preset_from_fined(first_presets: List[Dict], batch_size: int, d
         "pre_delay": col(),  # 초 단위 (ms 변환 제거)
         "damping": col(),
         "diffusion": col(),
+        "decay_time": col(),
     }
 
     distortion = {
@@ -105,6 +106,7 @@ def _build_batch_preset_from_fined(first_presets: List[Dict], batch_size: int, d
         reverb["pre_delay"][i, 0] = float(rv.get("pre_delay", 0.02))  # 초 단위 그대로
         reverb["damping"][i, 0] = float(rv.get("damping", 0.5))
         reverb["diffusion"][i, 0] = float(rv.get("diffusion", 0.5))
+        reverb["decay_time"][i, 0] = float(rv.get("decay_time", 0.5))
 
         # Distortion
         ds = p.get("Distortion", {})
@@ -122,7 +124,7 @@ def main():
     parser = argparse.ArgumentParser(description="Apply first N fined presets to an audio file and save outputs")
     parser.add_argument("--input", type=str, default="audio_dataset/speech/male/1320-122612-0000.flac", help="Path to input audio (wav)")
     parser.add_argument("--outdir", type=str, default="output/test", help="Directory to save processed wavs")
-    parser.add_argument("--num", type=int, default=5, help="Number of presets from the top to apply")
+    parser.add_argument("--num", type=int, default=10, help="Number of presets from the top to apply")
     parser.add_argument("--sr", type=int, default=48000, help="Sample rate for processing")
     args = parser.parse_args()
 
@@ -146,7 +148,7 @@ def main():
     batch_wav = wav.repeat(args.num, 1)  # [B, T]
 
     # Build batch preset from first N presets
-    first_presets = fined_presets[: args.num]
+    first_presets = fined_presets[0: args.num]
     batch_preset = _build_batch_preset_from_fined(first_presets, args.num, device)
     # Process
     processor = TorchAudioProcessor(sample_rate=args.sr).to(device)

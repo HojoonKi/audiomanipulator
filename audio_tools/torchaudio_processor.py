@@ -7,41 +7,9 @@ import time
 from typing import Dict, List
 
 # --- 로컬 프로젝트 모듈에서 이펙트 함수 임포트 ---
-from dasp_pytorch.functional import differentiable_flexible_eq, professional_reverb_optimized, simplified_reverb_optimized
+from dasp_pytorch.functional import mean_distortion, differentiable_hybrid_eq, differentiable_flexible_eq, professional_reverb_optimized
 
-class TorchAudioDistortion(nn.Module):
-    """
-    A robust distortion effect with dB-based drive control, a color parameter,
-    and automatic makeup gain to compensate for volume loss.
-    """
-    def forward(self, audio: torch.Tensor, params: Dict) -> torch.Tensor:
-        drive_db = params['gain'].view(-1, 1, 1).clamp(0.0, 36.0)
-        color = params['color'].view(-1, 1, 1).clamp(-0.9, 0.9)
-        
-        # 1. 입력 오디오의 AC RMS 계산 (DC 제거)
-        input_mean = torch.mean(audio, dim=-1, keepdim=True)
-        input_ac = audio - input_mean
-        input_rms = torch.sqrt(torch.mean(input_ac**2, dim=-1, keepdim=True) + 1e-8)
-        
-        # 2. dB 기반 드라이브 적용
-        linear_gain = 10 ** (drive_db / 20.0)
-        distorted_audio = torch.tanh((audio + color) * linear_gain)
-        
-        # 3. 왜곡된 오디오의 AC RMS 계산 (DC 제거)
-        output_mean = torch.mean(distorted_audio, dim=-1, keepdim=True)
-        output_ac = distorted_audio - output_mean
-        output_rms = torch.sqrt(torch.mean(output_ac**2, dim=-1, keepdim=True) + 1e-8)
-        
-        # 4. 출력 AC RMS를 입력 AC RMS와 맞추도록 스케일링 (0 나누기 방지)
-        scale = input_rms / output_rms.clamp(min=1e-8)
-        normalized_audio = output_ac * scale
-        
-        # 옵션: 원본 input_mean을 추가할 수 있지만, DC 제거를 위해 0으로 유지 추천
-        # normalized_audio += input_mean  # 필요 시 활성화
-        
-        return normalized_audio
 
-# --- 메인 프로세서 (for 루프 완전 제거) ---
 
 class TorchAudioProcessor(nn.Module):
     """
@@ -51,7 +19,7 @@ class TorchAudioProcessor(nn.Module):
     def __init__(self, sample_rate: int = 48000):
         super().__init__()
         self.sample_rate = sample_rate
-        self.distortion = TorchAudioDistortion()
+        self.training = True
 
     def forward(self, audio: torch.Tensor, preset: Dict) -> torch.Tensor:
         if audio.dim() == 2:
@@ -60,13 +28,13 @@ class TorchAudioProcessor(nn.Module):
         processed_audio = audio
         
         # 이펙터 순서: Distortion -> EQ -> Reverb (일반적인 시그널 체인)
-        # if "distortion" in preset:
-        #     processed_audio = self.distortion(processed_audio, preset["distortion"])
+        if "distortion" in preset:
+            processed_audio = mean_distortion(processed_audio, preset["distortion"])
         
-        # if "equalizer" in preset:
-        #     processed_audio = differentiable_flexible_eq(
-        #         processed_audio, self.sample_rate, preset["equalizer"]
-        #     )
+        if "equalizer" in preset:
+            processed_audio = differentiable_hybrid_eq(
+                processed_audio, self.sample_rate, preset["equalizer"], training=self.training
+            )
             
         if "reverb" in preset:
             # Reverb 함수는 파라미터 딕셔너리를 키워드 인자로 받음
@@ -89,23 +57,47 @@ if __name__ == '__main__':
 
     test_audio = torch.randn(batch_size, 1, num_samples, device=device)
     
-    # --- differentiable_flexible_eq에 맞는 파라미터 생성 ---
+    # --- differentiable_hybrid_eq에 맞는 파라미터 생성 ---
+    preset_template = [
+        # Band 1: Low-Shelf Boost
+        {'type_logits': [-5.0, 5.0], 'freq': 100.0, 'gain': 3.0, 'q': 0.7},
+        # Band 2: Low-Mid Cut
+        {'type_logits': [1.0], 'freq': 350.0, 'gain': -2.0, 'q': 1.5},
+        # Band 3: Mid Scoop
+        {'type_logits': [1.0], 'freq': 1000.0, 'gain': -6.0, 'q': 1.0},
+        # Band 4: Upper-Mid Presence Boost
+        {'type_logits': [1.0], 'freq': 3000.0, 'gain': 2.0, 'q': 1.5},
+        # Band 5: High Sibilance Cut
+        {'type_logits': [1.0], 'freq': 7000.0, 'gain': 8.0, 'q': 3.0},
+        # Band 6: High-Shelf Air Boost
+        {'type_logits': [5.0, -5.0], 'freq': 12000.0, 'gain': 4.0, 'q': 0.7},
+    ]
     dummy_preset = {
         "equalizer": {
-            f"band_{i}": {
-                # 'filter_type'에 미분 가능한 로짓(logit) 텐서를 전달
-                'filter_type': torch.randn(batch_size, 5, device=device).requires_grad_(),
-                'cutoff_freq': (torch.rand(batch_size, 1, device=device)*19980+20).requires_grad_(),
-                'gain_db': (torch.randn(batch_size, 1, device=device)*12-6).requires_grad_(),
-                'q_factor': (torch.rand(batch_size, 1, device=device)*5+0.5).requires_grad_(),
-            } for i in range(5)
+            f"band_{i+1}": {
+                'filter_type': (torch.tensor(preset_template[i]['type_logits'], device=device)
+                                .unsqueeze(0).expand(batch_size, -1) 
+                                + torch.randn(batch_size, len(preset_template[i]['type_logits']), device=device) * 0.1
+                               ).requires_grad_(),
+                'center_freq': (torch.full((batch_size, 1), preset_template[i]['freq'], device=device)
+                                + torch.randn(batch_size, 1, device=device) * 10
+                               ).requires_grad_(),
+                'gain_db': (torch.full((batch_size, 1), preset_template[i]['gain'], device=device)
+                            + torch.randn(batch_size, 1, device=device) * 0.5
+                           ).requires_grad_(),
+                'q': (torch.full((batch_size, 1), preset_template[i]['q'], device=device)
+                      + torch.rand(batch_size, 1, device=device) * 0.2 - 0.1
+                     ).requires_grad_(),
+            } for i in range(6)
         },
         "reverb": {
+            # Reverb와 Distortion은 기존 랜덤 방식 유지
             'wet_gain': (torch.rand(batch_size, 1, device=device)*0.5).requires_grad_(),
-            'room_size': torch.rand(batch_size, 1, device=device).requires_grad_(),
+            'room_size': (torch.rand(batch_size, 1, device=device) * 10.0).requires_grad_(),
             'damping': torch.rand(batch_size, 1, device=device).requires_grad_(),
             'diffusion': torch.rand(batch_size, 1, device=device).requires_grad_(),
-            'pre_delay': (torch.rand(batch_size, 1, device=device)*0.01).requires_grad_()
+            'pre_delay': (torch.rand(batch_size, 1, device=device) * 0.1).requires_grad_(),
+            'decay_time': (torch.rand(batch_size, 1, device=device) * 4).requires_grad_(),
         },
         "distortion": {
             'gain': (torch.rand(batch_size, 1, device=device)*9+1).requires_grad_(),

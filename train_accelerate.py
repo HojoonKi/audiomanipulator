@@ -55,6 +55,7 @@ from loss import (
 )
 from discriminator import create_discriminator
 from typing import List
+import json
 
 
 def create_model_and_optimizer(args):
@@ -269,7 +270,7 @@ def train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap
                     with torch.no_grad():
                         outputs = model(texts=descriptions, audio=audios, use_real_audio=False)
                         if 'preset_params' in outputs and '_raw_params' in outputs['preset_params']:
-                            _log_prediction_metrics(outputs['preset_params'], epoch, len(train_loader), args)
+                            _log_prediction_metrics(outputs['preset_params'], epoch, len(train_loader), descriptions, args)
                             metrics_logged_this_epoch = True
                 except Exception as e:
                     pass  # 메트릭 로깅 실패해도 훈련은 계속
@@ -498,82 +499,141 @@ def _log_generated_parameters(generated_preset, guide_preset, epoch):
     except Exception as e:
         print(f"❌ 파라미터 로깅 실패: {e}")
 
+PARAM_MAP = {
+    "equalizer": [  # 밴드별 타입 맵 (표시용)
+        {"params": ["center_freq", "gain_db", "q", "filter_type_idx"], "type_map": {0: "High-Pass", 1: "Low-Shelf"}},  # Band 1
+        {"params": ["center_freq", "gain_db", "q", "filter_type_idx"], "type_map": {0: "Peaking"}},                    # Band 2
+        {"params": ["center_freq", "gain_db", "q", "filter_type_idx"], "type_map": {0: "Peaking"}},                    # Band 3
+        {"params": ["center_freq", "gain_db", "q", "filter_type_idx"], "type_map": {0: "Peaking"}},                    # Band 4
+        {"params": ["center_freq", "gain_db", "q", "filter_type_idx"], "type_map": {0: "Peaking"}},                    # Band 5
+        {"params": ["center_freq", "gain_db", "q", "filter_type_idx"], "type_map": {0: "Low-Pass", 1: "High-Shelf"}},  # Band 6
+    ],
+    "reverb": {
+        # 디코더 순서와 일치하도록 정렬
+        "params": ["room_size", "pre_delay", "diffusion", "damping", "wet_gain", "decay_time"],
+    },
+    "distortion": {
+        "params": ["gain", "color"],
+    }
+}
 
-def _log_prediction_metrics(generated_preset, epoch, loader_len, args):
-    """본훈련 시 예측값 분포 및 다양한 메트릭 로깅"""
+def _parse_raw_params_for_logging(raw_params_batch: torch.Tensor):
+    """배치 단위의 raw_params를 디코더의 현재 출력 형식(6밴드)으로 파싱"""
+    all_presets = []
+    for params_vec in raw_params_batch:
+        preset = {}
+        idx = 0
+
+        # EQ: 6 bands, 각 밴드 4개 (center_freq, gain_db, q, filter_type_idx)
+        eq_data = {}
+        for band in range(1, 7):
+            band_data = {
+                "center_freq": params_vec[idx + 0].item(),
+                "gain_db":     params_vec[idx + 1].item(),
+                "q":           params_vec[idx + 2].item(),
+                "filter_type_idx": int(params_vec[idx + 3].item()),
+            }
+            idx += 4
+            eq_data[f"band_{band}"] = band_data
+        preset["equalizer"] = eq_data
+
+        # Reverb: 디코더 순서에 맞춤 [room_size, pre_delay, diffusion, damping, wet_gain, decay_time]
+        if idx + 6 <= len(params_vec):
+            preset["reverb"] = {
+                "room_size":  params_vec[idx + 0].item(),
+                "pre_delay":  params_vec[idx + 1].item(),
+                "diffusion":  params_vec[idx + 2].item(),
+                "damping":    params_vec[idx + 3].item(),
+                "wet_gain":   params_vec[idx + 4].item(),
+                "decay_time": params_vec[idx + 5].item(),
+            }
+            idx += 6
+
+        # Distortion: [gain, color]
+        if idx + 2 <= len(params_vec):
+            preset["distortion"] = {
+                "gain":  params_vec[idx + 0].item(),
+                "color": params_vec[idx + 1].item(),
+            }
+            idx += 2
+
+        all_presets.append(preset)
+
+    return all_presets
+
+def _log_prediction_metrics(generated_preset, epoch, loader_len, descriptions, args):
+    """(업그레이드 버전) 본훈련 시 예측값 분포 및 상세 파라미터를 로깅"""
+    if "_raw_params" not in generated_preset:
+        return
+
     try:
-        if "_raw_params" in generated_preset and args.use_wandb:
-            raw_params = generated_preset["_raw_params"]
-            if raw_params.dim() > 1:
-                raw_params = raw_params[0]  # 첫 번째 배치 아이템
-            
-            values = raw_params.detach().cpu().numpy()
-            
-            # Main training step 계산 (에포크 시작 시점 기준으로 설정하여 step 역행 방지)
+        raw_params_batch = generated_preset["_raw_params"].detach()
+        bs = raw_params_batch.shape[0]
+
+        # 1. 배치 전체의 상세 파라미터를 파싱
+        parsed_presets = _parse_raw_params_for_logging(raw_params_batch)
+        presets_with_prompts = []
+        for prompt, params in zip(descriptions, parsed_presets):
+            presets_with_prompts.append({
+                "prompt": prompt,
+                "parameters": params
+            })
+        # 2. 로컬에 JSON 파일로 저장
+        output_dir = os.path.join(args.output_dir, "training_presets_log")
+        os.makedirs(output_dir, exist_ok=True)
+        log_path = os.path.join(output_dir, f"epoch_{epoch+1}_batch_0_presets.json")
+        
+        log_data = {
+            "epoch": epoch + 1,
+            "timestamp": datetime.now().isoformat(),
+            "presets": presets_with_prompts
+        }
+        with open(log_path, 'w', encoding='utf-8') as f:
+            json.dump(log_data, f, indent=2, ensure_ascii=False)
+
+        # 3. Wandb에 로깅 (통계값 + 상세 테이블)
+        if getattr(args, 'use_wandb', False):
+            # Main training step 계산
             pretrain_offset = args.pretrain_epochs if hasattr(args, 'enable_pretrain') and args.enable_pretrain else 0
             current_step = pretrain_offset + epoch * loader_len + 1
+
+            # Wandb Table 생성 (개선됨)
+            columns = ["batch_idx", "prompt", "room_size", "drive_db", "B1_Type(H/LS)", "B5_Type(L/HS)"]
+            table = wandb.Table(columns=columns)
             
-            # 기본 통계
-            stats = {
-                'predictions/mean': float(np.mean(values)),
-                'predictions/std': float(np.std(values)),
-                'predictions/min': float(np.min(values)),
-                'predictions/max': float(np.max(values)),
-                'predictions/median': float(np.median(values)),
-            }
+            for i, p in enumerate(presets_with_prompts):
+                prompt = p["prompt"]
+                # Band 1 타입 추출
+                b1_info = PARAM_MAP["equalizer"][0]
+                b1_type_idx = p["parameters"]["equalizer"]["band_1"]["filter_type_idx"]
+                b1_type_str = b1_info["type_map"].get(b1_type_idx, "N/A")
+                
+                # Band 5 타입 추출
+                b5_info = PARAM_MAP["equalizer"][4]
+                b5_type_idx = p["parameters"]["equalizer"]["band_5"]["filter_type_idx"]
+                b5_type_str = b5_info["type_map"].get(b5_type_idx, "N/A")
+                
+                table.add_data(
+                    i,
+                    prompt,
+                    p.get("reverb", {}).get("room_size", "N/A"),
+                    p.get("distortion", {}).get("gain", "N/A"),
+                    f"{b1_type_str} ({b1_type_idx})",
+                    f"{b5_type_str} ({b5_type_idx})"
+                )
             
-            # 파라미터 그룹별 분석
-            # EQ parameters (0-19)
-            eq_params = values[:20]
-            stats.update({
-                'eq/mean': float(np.mean(eq_params)),
-                'eq/std': float(np.std(eq_params)),
-                'eq/range': float(np.max(eq_params) - np.min(eq_params)),
-            })
+            # Wandb에 테이블 및 통계 로깅
+            wandb.log({
+                f"predictions_epoch_{epoch+1}/parameters_table": table,
+                'predictions/mean': raw_params_batch.mean().item(),
+                'predictions/std': raw_params_batch.std().item(),
+            }, step=current_step)
             
-            # Reverb parameters (20-24)
-            reverb_params = values[20:25]
-            stats.update({
-                'reverb/mean': float(np.mean(reverb_params)),
-                'reverb/std': float(np.std(reverb_params)),
-                'reverb/range': float(np.max(reverb_params) - np.min(reverb_params)),
-            })
-            
-            # Distortion parameters (25-26)
-            dist_params = values[25:27]
-            stats.update({
-                'distortion/mean': float(np.mean(dist_params)),
-                'distortion/std': float(np.std(dist_params)),
-                'distortion/gain': float(dist_params[0]),
-                'distortion/color': float(dist_params[1]),
-            })
-            
-            # Pitch parameter (27)
-            pitch_param = values[27]
-            stats.update({
-                'pitch/scale': float(pitch_param),
-            })
-            
-            # 특정 값 범위 분석
-            stats.update({
-                'analysis/zero_count': int(np.sum(np.abs(values) < 0.01)),
-                'analysis/extreme_count': int(np.sum(np.abs(values) > 10.0)),
-                'analysis/negative_count': int(np.sum(values < 0)),
-                'analysis/positive_count': int(np.sum(values > 0)),
-            })
-            
-            # Wandb에 로깅 (옵션 사용 시에만)
-            if getattr(args, 'use_wandb', False):
-                wandb.log(stats, step=current_step)
-            
-            # 콘솔에도 간단히 출력
-            print(f"📊 [Epoch {epoch+1}] 예측값 분포: "
-                  f"평균={stats['predictions/mean']:.3f}, "
-                  f"표준편차={stats['predictions/std']:.3f}, "
-                  f"범위=[{stats['predictions/min']:.3f}, {stats['predictions/max']:.3f}]")
-            
+            print(f"📊 [Epoch {epoch+1}] 예측값 상세 로깅 완료.")
     except Exception as e:
+        import traceback
         print(f"❌ 예측값 메트릭 로깅 실패: {e}")
+        traceback.print_exc()
 
 
 def simple_pretrain(model, optimizer, accelerator, args, teacher_clap, discriminator=None, discriminator_optimizer=None):
@@ -1024,6 +1084,8 @@ def main():
                        help='체크포인트 저장 디렉토리')
     parser.add_argument('--save_every', type=int, default=10,
                        help='체크포인트 저장 주기')
+    parser.add_argument('--output_dir', type=str, default='./output',
+                       help='출력 디렉토리')
     
     args = parser.parse_args()
     
