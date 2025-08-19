@@ -59,6 +59,6 @@ docker run \
   -v "$(pwd)/output":/app/output \
   -v "$(pwd)/audio_dataset":/app/audio_dataset \
   -w /app \
-  "${IMAGE_NAME}" bash -lc 'if [ -d "/app/dasp-pytorch" ]; then cd /app/dasp-pytorch && pip install -e .; fi; exec bash'
+  "${IMAGE_NAME}" bash -lc 'if [ -d "/app/dasp-pytorch" ]; then cd /app/dasp-pytorch && pip install -e . && cd /app; fi; exec bash'
 
 

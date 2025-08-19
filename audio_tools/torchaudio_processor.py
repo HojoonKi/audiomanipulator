@@ -24,7 +24,6 @@ class TorchAudioProcessor(nn.Module):
     def forward(self, audio: torch.Tensor, preset: Dict) -> torch.Tensor:
         if audio.dim() == 2:
             audio = audio.unsqueeze(1)
-        
         processed_audio = audio
         
         # 이펙터 순서: Distortion -> EQ -> Reverb (일반적인 시그널 체인)

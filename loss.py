@@ -74,7 +74,7 @@ def compute_self_supervised_clap_loss(
     try:
         # 1. 학생(fx_model)이 과제 수행: 텍스트 설명에 맞춰 오디오 처리
         with torch.cuda.amp.autocast(enabled=False):  # 안정성을 위해 FP32 유지
-            outputs = fx_model(texts=fx_texts, audio=original_audios, use_real_audio=False)
+            outputs = fx_model(texts=fx_texts, audio=original_audios, use_real_audio=True)
             predicted_audios = outputs['processed_audio']
 
         # 2. 오디오 차원 정규화: 최종적으로 (batch, samples)

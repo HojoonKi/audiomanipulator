@@ -293,7 +293,15 @@ class CLAPTextEncoder(nn.Module):
         loss = 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels))
             
         return loss
-            
+    
+    def compute_clap_loss_cosine_similarity(self, predicted_audios: torch.Tensor, text_prompts: List[str]) -> torch.Tensor:
+        """
+        Compute CLAP loss using cosine similarity
+        """
+        audio_embeds = self.get_audio_embedding_with_grad(predicted_audios)
+        text_embeds = self.get_text_embedding(text_prompts)
+        return F.cosine_similarity(audio_embeds, text_embeds, dim=-1)
+    
     def forward(self, text_prompts: Union[str, List[str]]):
         """기본 forward는 텍스트 인코딩을 수행"""
         return self.get_text_embedding(text_prompts)

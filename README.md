@@ -53,10 +53,13 @@ cd audiomanipulator
 # 2) (권장) 허깅페이스 토큰 설정: 모델/토크나이저 다운로드를 위해 필요할 수 있음
 export HUGGINGFACE_HUB_TOKEN=hf_xxx
 
-# 3) 컨테이너 빌드 및 진입
+# 3) dasp-pytorch clone
+git clone https://github.com/HojoonKi/dasp-pytorch.git
+
+# 4) 컨테이너 빌드 및 진입
 ./run.sh
 
-# 4) (컨테이너 내부) conda 환경 자동 활성화
+# 5) (컨테이너 내부) conda 환경 자동 활성화
 python train.py --help
 ```
 

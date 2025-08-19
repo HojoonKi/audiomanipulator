@@ -601,7 +601,8 @@ class PureDescriptionDataset(Dataset):
             'description': description,
             'audio': audio,
             'subject': subject,
-            'audio_type': audio_type
+            'audio_type': audio_type,
+            'audio_path': audio_path
         }
 
 
@@ -611,30 +612,33 @@ def _custom_collate_base(batch):
     audios = torch.stack([item['audio'] for item in batch])
     subjects = [item['subject'] for item in batch]
     audio_types = [item['audio_type'] for item in batch]
-    return descriptions, audios, subjects, audio_types
+    audio_paths = [item['audio_path'] for item in batch]
+    return descriptions, audios, subjects, audio_types, audio_paths
 
 
 
 def custom_collate_no_guide(batch):
     """가이드 프리셋 미포함 collate (DataLoader 멀티프로세싱 호환)"""
-    descriptions, audios, subjects, audio_types = _custom_collate_base(batch)
+    descriptions, audios, subjects, audio_types, audio_paths = _custom_collate_base(batch)
     return {
         'description': descriptions,
         'audio': audios,
         'subject': subjects,
         'audio_type': audio_types,
+        'audio_path': audio_paths
     }
 
 
 def custom_collate_with_guide(batch):
     """가이드 프리셋 포함 collate (사전훈련용)"""
-    descriptions, audios, subjects, audio_types = _custom_collate_base(batch)
+    descriptions, audios, subjects, audio_types, audio_paths = _custom_collate_base(batch)
     guide_presets = [item.get('guide_preset', {}) for item in batch]
     return {
         'description': descriptions,
         'audio': audios,
         'subject': subjects,
         'audio_type': audio_types,
+        'audio_path': audio_paths,
         'guide_preset': guide_presets,
     }
 

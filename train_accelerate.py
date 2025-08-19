@@ -237,6 +237,7 @@ def train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap
         try:
             descriptions = batch['description']
             audios = batch['audio']
+            audio_paths = batch['audio_path']
             
             # 차원 확인
             if audios.dim() == 2:
@@ -270,7 +271,7 @@ def train_epoch(model, train_loader, optimizer, accelerator, epoch, teacher_clap
                     with torch.no_grad():
                         outputs = model(texts=descriptions, audio=audios, use_real_audio=False)
                         if 'preset_params' in outputs and '_raw_params' in outputs['preset_params']:
-                            _log_prediction_metrics(outputs['preset_params'], epoch, len(train_loader), descriptions, args)
+                            _log_prediction_metrics(outputs['preset_params'], epoch, len(train_loader), descriptions, audio_paths, args)
                             metrics_logged_this_epoch = True
                 except Exception as e:
                     pass  # 메트릭 로깅 실패해도 훈련은 계속
@@ -357,39 +358,60 @@ def save_checkpoint(model, optimizer, scheduler, accelerator, epoch, train_loss,
         return
     
     try:
-        # 저장 디렉토리 생성
         os.makedirs(args.save_dir, exist_ok=True)
-        
-        # Accelerate에서는 unwrap_model로 원본 모델 접근
         base_model = accelerator.unwrap_model(model)
         full_state = base_model.state_dict()
-        
-        # 어댑터 파라미터만 필터링 (훈련 가능한 파라미터만)
+
         adapter_state = {}
         frozen_params = []
-        
+        saved_decoder = []
+        saved_adapters = []
+        saved_final_norm = []
+        skipped_trainable = []
+
         for name, param in base_model.named_parameters():
             if param.requires_grad:
-                # 어댑터 관련 파라미터만 저장
-                if any(adapter_key in name for adapter_key in [
-                    'backbone.adapters',     # CrossAttentionAdapter들
-                    'backbone.final_norm',   # 최종 LayerNorm
-                    'decoder.',             # decoder는 항상 훈련
-                ]):
+                if name.startswith('decoder.'):
                     adapter_state[name] = full_state[name]
+                    saved_decoder.append(name)
+                elif name.startswith('backbone.adapters'):
+                    adapter_state[name] = full_state[name]
+                    saved_adapters.append(name)
+                elif name.startswith('backbone.final_norm'):
+                    adapter_state[name] = full_state[name]
+                    saved_final_norm.append(name)
+                else:
+                    skipped_trainable.append(name)
             else:
                 frozen_params.append(name)
-        
-        print(f"💾 어댑터 파라미터만 저장: {len(adapter_state)}/{len(full_state)} layers")
-        if accelerator.is_main_process and epoch == 0:  # 첫 번째 저장시에만 상세 정보
-            print(f"   - 저장되는 어댑터: {list(adapter_state.keys())[:3]}...")
-            print(f"   - Frozen 파라미터 수: {len(frozen_params)}")
-        
-        model_state = adapter_state
-        
+
+        # 상세 출력
+        print("💾 체크포인트 저장 요약 (trainable 중 선택 저장: 어댑터/디코더/final_norm)")
+        print(f"   - 저장 총계: {len(adapter_state)}개")
+        print(f"   - 디코더: {len(saved_decoder)}개")
+        print(f"   - 어댑터: {len(saved_adapters)}개")
+        print(f"   - final_norm: {len(saved_final_norm)}개")
+        print(f"   - trainable이지만 제외됨: {len(skipped_trainable)}개")
+        print(f"   - frozen 파라미터: {len(frozen_params)}개")
+
+        # 그룹별 이름 전체 출력
+        def _print_group(title, items):
+            print(f"   - {title} 목록 ({len(items)}):")
+            for n in items:
+                print(f"      {n}")
+
+        _print_group("디코더", saved_decoder)
+        _print_group("어댑터", saved_adapters)
+        _print_group("final_norm", saved_final_norm)
+        _print_group("제외된 trainable", skipped_trainable)
+        # frozen은 길 수 있어 기본적으로 목록은 생략하고 원하면 아래 주석 해제
+        # _print_group("frozen", frozen_params)
+
+        model_state = adapter_state  # 선택 저장(어댑터/디코더/final_norm)
+
         checkpoint = {
             'epoch': epoch,
-            'model_state_dict': model_state,  # 어댑터 파라미터만
+            'model_state_dict': model_state,
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
             'train_loss': train_loss,
@@ -397,34 +419,27 @@ def save_checkpoint(model, optimizer, scheduler, accelerator, epoch, train_loss,
             'args': args,
             'adapter_info': {
                 'total_params': len(full_state),
-                'adapter_params': len(adapter_state),
+                'saved_total': len(adapter_state),
+                'decoder_params': len(saved_decoder),
+                'adapter_params': len(saved_adapters),
+                'final_norm_params': len(saved_final_norm),
+                'skipped_trainable': skipped_trainable,
                 'frozen_params': len(frozen_params),
-                'adapter_keys': list(adapter_state.keys()),
                 'training_mode': 'adapter_only'
             }
         }
-        
-        # 일반 체크포인트 저장
+
         checkpoint_path = os.path.join(args.save_dir, f'checkpoint_epoch_{epoch+1}.pt')
         torch.save(checkpoint, checkpoint_path)
         print(f"💾 체크포인트 저장: {checkpoint_path}")
-        
-        # 최고 성능 체크포인트 저장
+
         if is_best:
             best_path = os.path.join(args.save_dir, 'best_model.pt')
             torch.save(checkpoint, best_path)
             print(f"🏆 최고 성능 모델 저장: {best_path}")
-            
+
     except Exception as e:
         print(f"❌ 체크포인트 저장 실패: {e}")
-
-
-
-
-
-
-
-
 
 
 
@@ -561,7 +576,7 @@ def _parse_raw_params_for_logging(raw_params_batch: torch.Tensor):
 
     return all_presets
 
-def _log_prediction_metrics(generated_preset, epoch, loader_len, descriptions, args):
+def _log_prediction_metrics(generated_preset, epoch, loader_len, descriptions, audio_paths, args):
     """(업그레이드 버전) 본훈련 시 예측값 분포 및 상세 파라미터를 로깅"""
     if "_raw_params" not in generated_preset:
         return
@@ -573,9 +588,10 @@ def _log_prediction_metrics(generated_preset, epoch, loader_len, descriptions, a
         # 1. 배치 전체의 상세 파라미터를 파싱
         parsed_presets = _parse_raw_params_for_logging(raw_params_batch)
         presets_with_prompts = []
-        for prompt, params in zip(descriptions, parsed_presets):
+        for prompt, audio_path, params in zip(descriptions, audio_paths, parsed_presets):
             presets_with_prompts.append({
                 "prompt": prompt,
+                "audio_path": audio_path,
                 "parameters": params
             })
         # 2. 로컬에 JSON 파일로 저장
@@ -609,15 +625,15 @@ def _log_prediction_metrics(generated_preset, epoch, loader_len, descriptions, a
                 b1_type_str = b1_info["type_map"].get(b1_type_idx, "N/A")
                 
                 # Band 5 타입 추출
-                b5_info = PARAM_MAP["equalizer"][4]
+                b5_info = PARAM_MAP["equalizer"][5]
                 b5_type_idx = p["parameters"]["equalizer"]["band_5"]["filter_type_idx"]
                 b5_type_str = b5_info["type_map"].get(b5_type_idx, "N/A")
                 
                 table.add_data(
                     i,
                     prompt,
-                    p.get("reverb", {}).get("room_size", "N/A"),
-                    p.get("distortion", {}).get("gain", "N/A"),
+                    p["parameters"].get("reverb", {}).get("room_size", "N/A"),
+                    p["parameters"].get("distortion", {}).get("gain", "N/A"),
                     f"{b1_type_str} ({b1_type_idx})",
                     f"{b5_type_str} ({b5_type_idx})"
                 )
@@ -1089,7 +1105,7 @@ def main():
     
     args = parser.parse_args()
     
-    # Accelerator 초기화 먼저 수행
+    # Accelerator initialization
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     
     accelerator = Accelerator(

@@ -51,38 +51,33 @@ def _tensor_stats_brief_dec(name: str, tensor: torch.Tensor) -> None:
 # Parallel Decoder Architecture (Recommended)
 # ===============================================
 
-class EQBandDecoder(nn.Module):
-    """Individual decoder for a single EQ band"""
+class UnifiedEQDecoder(nn.Module):
+    """
+    Unified decoder that predicts parameters for all EQ bands.
+    It ensures monotonic frequency ordering AND an upper bound of 20kHz
+    by predicting the ratio of the remaining frequency range for subsequent bands.
+    """
     
-    def __init__(self, 
+    def __init__(self,
                  input_dim: int,
-                 hidden_dim: int = 128,  # 더 작은 hidden_dim (밴드별로 특화)
-                 num_layers: int = 2,    # 더 간단한 구조
+                 hidden_dim: int = 256,
+                 num_layers: int = 3,
                  dropout: float = 0.1,
-                 band_id: int = 1,
-                 total_bands: int = 6,      # 전체 밴드 수
-                 num_freq_bins: int = 256,  # 주파수 분류 빈 개수
-                 num_gain_bins: int = 128,  # 게인 분류 빈 개수
-                 num_q_bins: int = 64):     # Q factor 분류 빈 개수
+                 total_bands: int = 6,
+                 num_freq_bins: int = 256,
+                 num_gain_bins: int = 128,
+                 num_q_bins: int = 64):
         super().__init__()
         
-        self.band_id = band_id
         self.total_bands = total_bands
-        self.input_dim = input_dim
         self.num_freq_bins = num_freq_bins
         self.num_gain_bins = num_gain_bins
         self.num_q_bins = num_q_bins
         
-        # 밴드별 필터 타입 설정
-        self.is_first_band = (band_id == 1)
-        self.is_last_band = (band_id == total_bands)
-        self.is_middle_band = not (self.is_first_band or self.is_last_band)
-        
-        # 밴드별 특화된 소형 decoder
+        # 1. Shared Backbone Network
         layers = []
         current_dim = input_dim
-        
-        for i in range(num_layers):
+        for _ in range(num_layers):
             layers.extend([
                 nn.Linear(current_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
@@ -90,151 +85,194 @@ class EQBandDecoder(nn.Module):
                 nn.Dropout(dropout)
             ])
             current_dim = hidden_dim
-        
-        self.decoder_layers = nn.Sequential(*layers)
-        
-        # 하이브리드 헤드: 분류 + 회귀
-        # Frequency (20Hz - 20kHz)
-        self.freq_class_head = nn.Linear(hidden_dim, num_freq_bins)  # 어느 구간인지
-        self.freq_offset_head = nn.Linear(hidden_dim, 1)             # 구간 내 미세 조정
-        
-        # Gain (-30dB - +30dB)  
-        self.gain_class_head = nn.Linear(hidden_dim, num_gain_bins)
-        self.gain_offset_head = nn.Linear(hidden_dim, 1)
-        
-        # Q factor (0.1 - 30.0)
-        self.q_class_head = nn.Linear(hidden_dim, num_q_bins)
-        self.q_offset_head = nn.Linear(hidden_dim, 1)
-        
-        # Filter type (순수 분류만) - 밴드별로 다름
-        if self.is_first_band or self.is_last_band:
-            self.filter_type_head = nn.Linear(hidden_dim, 2)  # 2 filter types (first/last band)
-        else:
-            self.filter_type_head = None  # 중간 밴드는 peaking 고정
-        
+        self.backbone = nn.Sequential(*layers)
+
+        # 2. --- 수정된 주파수 출력 헤드 ---
+        # Band 1: Predicts the absolute starting frequency (Classification + Regression)
+        self.freq1_class_head = nn.Linear(hidden_dim, num_freq_bins)
+        self.freq1_offset_head = nn.Linear(hidden_dim, 1)
+
+        # Bands 2-6: Predict (total_bands - 1) coefficients (0~1) for the remaining range
+        self.freq_coeffs_head = nn.Linear(hidden_dim, total_bands - 1)
+
+        # --- Gain and Q Heads (No changes needed) ---
+        self.gain_heads = nn.ModuleDict()
+        self.q_heads = nn.ModuleDict()
+        for i in range(total_bands):
+            band_idx = i + 1
+            self.gain_heads[f'band_{band_idx}_class'] = nn.Linear(hidden_dim, num_gain_bins)
+            self.gain_heads[f'band_{band_idx}_offset'] = nn.Linear(hidden_dim, 1)
+            self.q_heads[f'band_{band_idx}_class'] = nn.Linear(hidden_dim, num_q_bins)
+            self.q_heads[f'band_{band_idx}_offset'] = nn.Linear(hidden_dim, 1)
+
+        # --- Filter Type Heads (No changes needed) ---
+        self.filter_type_head_first = nn.Linear(hidden_dim, 2)
+        self.filter_type_head_last = nn.Linear(hidden_dim, 2)
+
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """
-        Convert text embedding to single EQ band parameters using hybrid heads
+        batch_size = text_embedding.shape[0]
+        device = text_embedding.device
+
+        hidden = self.backbone(text_embedding)
+
+        # --- Reconstruct Frequencies (NEW LOGIC) ---
+        log_freqs_reconstructed = []
+        log_max_full = torch.log(torch.tensor(20000.0, device=device))
+
+        # Step 1: Calculate Band 1 frequency
+        log_min_full = torch.log(torch.tensor(20.0, device=device))
+        freq1_logits = self.freq1_class_head(hidden)
+        freq1_offset_raw = self.freq1_offset_head(hidden)
+        freq1_offset = torch.tanh(freq1_offset_raw) * 0.5
         
-        Args:
-            text_embedding: (batch_size, embedding_dim)
+        current_log_freq = self._reconstruct_single_freq(
+            freq1_logits, freq1_offset, log_min_full, log_max_full
+        )
+        log_freqs_reconstructed.append(current_log_freq)
+
+        # Step 2: Predict coefficients for bands 2-6 and calculate frequencies
+        # Use sigmoid to ensure coefficients are between 0 and 1
+        coeffs = torch.sigmoid(self.freq_coeffs_head(hidden)) # Shape: (batch_size, 5)
+
+        for i in range(self.total_bands - 1):
+            c = coeffs[:, i]
+            remaining_range = log_max_full - current_log_freq
+            # Add a proportion of the remaining range to the current frequency
+            current_log_freq = current_log_freq + c * remaining_range
+            log_freqs_reconstructed.append(current_log_freq)
+
+        final_freqs = torch.exp(torch.stack(log_freqs_reconstructed, dim=1))
+
+        # --- Reconstruct Gain, Q, and Filter Type (OLD LOGIC) ---
+        final_gains = []
+        final_qs = []
+        raw_gain_logits, raw_gain_offsets = {}, {}
+        raw_q_logits, raw_q_offsets = {}, {}
+
+        for i in range(self.total_bands):
+            band_idx = i + 1
+            raw_gain_logits[band_idx] = self.gain_heads[f'band_{band_idx}_class'](hidden)
+            raw_gain_offsets[band_idx] = torch.tanh(self.gain_heads[f'band_{band_idx}_offset'](hidden)) * 0.5
+            raw_q_logits[band_idx] = self.q_heads[f'band_{band_idx}_class'](hidden)
+            raw_q_offsets[band_idx] = torch.tanh(self.q_heads[f'band_{band_idx}_offset'](hidden)) * 0.5
+
+            gain = self._reconstruct_gain(raw_gain_logits[band_idx], raw_gain_offsets[band_idx])
+            q = self._reconstruct_q(raw_q_logits[band_idx], raw_q_offsets[band_idx])
+            final_gains.append(gain)
+            final_qs.append(q)
+
+        filter_type_first = torch.softmax(self.filter_type_head_first(hidden), dim=-1)
+        filter_type_last = torch.softmax(self.filter_type_head_last(hidden), dim=-1)
+
+        # --- Populate final output dictionary ---
+        output_dict = {}
+        for i in range(self.total_bands):
+            band_idx = i + 1
+            # For training: raw logits and offsets
+            # For band 1 freq
+            if band_idx == 1:
+                output_dict[f'band_{band_idx}_freq_logits'] = freq1_logits
+                output_dict[f'band_{band_idx}_freq_offset'] = freq1_offset
+            # For band 2-6 freq, we output the raw coefficient value (pre-sigmoid)
+            else:
+                output_dict[f'band_{band_idx}_freq_coeff'] = self.freq_coeffs_head(hidden)[:, i-1].unsqueeze(-1)
             
-        Returns:
-            band_parameters: Dict of this band's parameters (both classification and regression)
+            output_dict[f'band_{band_idx}_gain_logits'] = raw_gain_logits[band_idx]
+            output_dict[f'band_{band_idx}_gain_offset'] = raw_gain_offsets[band_idx]
+            output_dict[f'band_{band_idx}_q_logits'] = raw_q_logits[band_idx]
+            output_dict[f'band_{band_idx}_q_offset'] = raw_q_offsets[band_idx]
+            
+            # Filter type
+            if band_idx == 1:
+                output_dict[f'band_{band_idx}_filter_type'] = filter_type_first
+            elif band_idx == self.total_bands:
+                output_dict[f'band_{band_idx}_filter_type'] = filter_type_last
+            else:
+                output_dict[f'band_{band_idx}_filter_type'] = torch.ones(batch_size, 1, device=device) # Peaking
+            
+            # For inference: final continuous values
+            output_dict[f'band_{band_idx}_freq'] = final_freqs[:, i].unsqueeze(-1)
+            output_dict[f'band_{band_idx}_gain'] = final_gains[i].unsqueeze(-1)
+            output_dict[f'band_{band_idx}_q'] = final_qs[i].unsqueeze(-1)
+
+        return output_dict
+
+    # --- Helper methods (argmax 제거 및 리팩토링) ---
+    def _differentiable_reconstruct(self, logits, offset, min_val, max_val, num_bins, log_scale=False):
         """
-        # Pass through decoder layers
-        hidden = self.decoder_layers(text_embedding)
+        Differentiable parameter reconstruction using a softmax weighted average.
+        This is a generic helper function to replace argmax-based reconstruction.
+        """
+        device = logits.device
         
-        # 하이브리드 예측: 분류 + 회귀
-        # Frequency
-        freq_logits = self.freq_class_head(hidden)  # (batch, num_freq_bins)
-        freq_offset_raw = self.freq_offset_head(hidden)  # (batch, 1)
-        freq_offset = torch.tanh(freq_offset_raw) * 0.5  # [-0.5, 0.5] 구간 내 미세 조정
-        
-        # Gain  
-        gain_logits = self.gain_class_head(hidden)
-        gain_offset_raw = self.gain_offset_head(hidden)
-        gain_offset = torch.tanh(gain_offset_raw) * 0.5
-        
-        # Q factor
-        q_logits = self.q_class_head(hidden)
-        q_offset_raw = self.q_offset_head(hidden)
-        q_offset = torch.tanh(q_offset_raw) * 0.5
-        
-        # Filter type (순수 분류) - 밴드별로 다름
-        if self.filter_type_head is not None:
-            filter_type_logits = self.filter_type_head(hidden)
-            filter_type = torch.softmax(filter_type_logits, dim=-1)
+        # If log_scale is True, perform calculations in log space
+        if log_scale:
+            # torch.tensor() wrapper removed. min_val/max_val are already numbers or tensors.
+            log_min_val = torch.log(torch.as_tensor(min_val, device=device))
+            log_max_val = torch.log(torch.as_tensor(max_val, device=device))
         else:
-            # 중간 밴드는 peaking 고정 (더미 값)
-            filter_type_logits = torch.zeros(hidden.shape[0], 1, device=hidden.device)
-            filter_type = torch.ones(hidden.shape[0], 1, device=hidden.device)
+            log_min_val = torch.as_tensor(min_val, device=device)
+            log_max_val = torch.as_tensor(max_val, device=device)
+
+        # Create a tensor of all bin centers
+        bin_width = (log_max_val - log_min_val) / num_bins
+        bin_centers = torch.linspace(
+            log_min_val + bin_width / 2, 
+            log_max_val - bin_width / 2, 
+            steps=num_bins, 
+            device=device
+        )
         
-        # 최종 연속값 계산 (추론용) - 모두 [B,1] 컬럼 텐서로 표준화
-        freq_final = self._reconstruct_frequency(freq_logits, freq_offset).unsqueeze(-1)
-        gain_final = self._reconstruct_gain(gain_logits, gain_offset).unsqueeze(-1)
-        q_final = self._reconstruct_q(q_logits, q_offset).unsqueeze(-1)
+        # Calculate probabilities for each bin
+        probs = torch.softmax(logits, dim=-1)
         
-        return {
-            # 하이브리드 출력 (학습용)
-            f'band_{self.band_id}_freq_logits': freq_logits,
-            f'band_{self.band_id}_freq_offset': freq_offset,
-            f'band_{self.band_id}_gain_logits': gain_logits,
-            f'band_{self.band_id}_gain_offset': gain_offset,
-            f'band_{self.band_id}_q_logits': q_logits,
-            f'band_{self.band_id}_q_offset': q_offset,
-            f'band_{self.band_id}_filter_type': filter_type,
-            
-            # 최종 연속값 (추론용)
-            f'band_{self.band_id}_freq': freq_final,
-            f'band_{self.band_id}_gain': gain_final,
-            f'band_{self.band_id}_q': q_final,
-        }
-    
-    def _reconstruct_frequency(self, freq_logits: torch.Tensor, freq_offset: torch.Tensor) -> torch.Tensor:
-        """분류 + 회귀로부터 최종 주파수 값 복원"""
-        # 1. 분류에서 빈 인덱스 추출
-        freq_bin_idx = torch.argmax(freq_logits, dim=-1)  # (batch,)
+        # Calculate the weighted average of bin centers ("soft argmax")
+        soft_center = torch.sum(probs * bin_centers, dim=-1)
+
+        # Apply the fine-tuning offset
+        final_val = soft_center + offset.squeeze(-1) * bin_width
         
-        # 2. 빈 인덱스를 주파수 범위로 변환 (로그 스케일)
-        log_min = torch.log(torch.tensor(20.0, device=freq_logits.device))
-        log_max = torch.log(torch.tensor(20000.0, device=freq_logits.device))
+        # If log_scale, convert back from log space
+        if log_scale:
+            final_val = torch.exp(final_val)
+                
+        return final_val.clamp(min_val, max_val)
+
+    def _reconstruct_single_freq(self, logits, offset, log_min, log_max):
+        """
+        Reconstructs the log-frequency for Band 1. 
+        Note: This function should return the LOG frequency to be used in the ratio calculation.
+        The differentiable helper returns linear scale, so we take the log again.
+        """
+        # We need to convert log_min/max to linear scale for the helper
+        min_freq = torch.exp(log_min)
+        max_freq = torch.exp(log_max)
         
-        # 각 빈의 중심 주파수 계산
-        bin_width = (log_max - log_min) / self.num_freq_bins
-        bin_center_log = log_min + (freq_bin_idx.float() + 0.5) * bin_width
-        
-        # 3. 오프셋 적용 (빈 너비의 절반 범위 내에서)
-        final_log_freq = bin_center_log + freq_offset.squeeze(-1) * bin_width
-        
-        # 4. 로그에서 실제 주파수로 변환
-        return torch.exp(final_log_freq)
-    
-    def _reconstruct_gain(self, gain_logits: torch.Tensor, gain_offset: torch.Tensor) -> torch.Tensor:
-        """분류 + 회귀로부터 최종 게인 값 복원"""
-        gain_bin_idx = torch.argmax(gain_logits, dim=-1)
-        
-        # -20dB ~ +20dB 범위 (현재 설정에 맞춤)
-        gain_min, gain_max = -20.0, 20.0
-        bin_width = (gain_max - gain_min) / self.num_gain_bins
-        bin_center = gain_min + (gain_bin_idx.float() + 0.5) * bin_width
-        
-        final_gain = bin_center + gain_offset.squeeze(-1) * bin_width
-        return final_gain.clamp(gain_min, gain_max)
-    
-    def _reconstruct_q(self, q_logits: torch.Tensor, q_offset: torch.Tensor) -> torch.Tensor:
-        """분류 + 회귀로부터 최종 Q factor 값 복원"""
-        q_bin_idx = torch.argmax(q_logits, dim=-1)
-        
-        # 0.1 ~ 30.0 범위 (로그 스케일)
-        log_min = torch.log(torch.tensor(0.1, device=q_logits.device))
-        log_max = torch.log(torch.tensor(30.0, device=q_logits.device))
-        
-        bin_width = (log_max - log_min) / self.num_q_bins
-        bin_center_log = log_min + (q_bin_idx.float() + 0.5) * bin_width
-        
-        final_log_q = bin_center_log + q_offset.squeeze(-1) * bin_width
-        return torch.exp(final_log_q)
-    
-    def _apply_freq_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
-        """주파수 제약 적용 - 밴드별 특화 없이 전체 범위에서 자유롭게"""
-        sigmoid_val = torch.sigmoid(raw_value)
-        log_min = torch.log(torch.tensor(20.0))
-        log_max = torch.log(torch.tensor(20000.0))
-        log_freq = log_min + sigmoid_val * (log_max - log_min)
-        return torch.exp(log_freq)
-    
-    def _apply_gain_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
-        """게인 제약: -20dB to +20dB"""
-        return torch.tanh(raw_value) * 20
-    
-    def _apply_q_constraints(self, raw_value: torch.Tensor) -> torch.Tensor:
-        """Q factor 제약: 0.1 to 30.0 (로그 스케일)"""
-        sigmoid_val = torch.sigmoid(raw_value)
-        log_min = torch.log(torch.tensor(0.1))
-        log_max = torch.log(torch.tensor(30.0))
-        log_q = log_min + sigmoid_val * (log_max - log_min)
-        return torch.exp(log_q)
+        reconstructed_freq = self._differentiable_reconstruct(
+            logits, offset, min_freq, max_freq, self.num_freq_bins, log_scale=True
+        )
+        # Return the log of the frequency as required by the rest of the forward pass
+        return torch.log(reconstructed_freq)
+
+    def _reconstruct_gain(self, gain_logits, gain_offset):
+        return self._differentiable_reconstruct(
+            gain_logits, 
+            gain_offset, 
+            min_val=-20.0, 
+            max_val=20.0, 
+            num_bins=self.num_gain_bins, 
+            log_scale=False
+        )
+
+    def _reconstruct_q(self, q_logits, q_offset):
+        return self._differentiable_reconstruct(
+            q_logits, 
+            q_offset, 
+            min_val=0.1, 
+            max_val=30.0, 
+            num_bins=self.num_q_bins, 
+            log_scale=True
+        )
 
 
 class EffectDecoderBlock(nn.Module):
@@ -326,6 +364,7 @@ class EffectDecoderBlock(nn.Module):
             heads['diffusion'] = nn.Linear(hidden_dim, 1)      # Diffusion (0-1)
             heads['damping'] = nn.Linear(hidden_dim, 1)        # High-freq damping (0-1)
             heads['wet_gain'] = nn.Linear(hidden_dim, 1)       # Wet signal level
+            heads['decay_time'] = nn.Linear(hidden_dim, 1)    # Decay time in ms
             
         elif self.effect_name == "distortion":
             # Distortion: Simplified set (processor에서 실제 사용하는 것만)
@@ -401,72 +440,43 @@ class EffectDecoderBlock(nn.Module):
         return parameters
     
     def _reconstruct_parameter(self, param_name: str, class_logits: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        """분류 + 회귀로부터 최종 파라미터 값 복원"""
+        """분류 + 회귀로부터 최종 파라미터 값 복원 (미분 가능 버전)"""
         
-        # 분류에서 빈 인덱스 추출
-        bin_idx = torch.argmax(class_logits, dim=-1)
+        # 1. 파라미터별 범위와 빈 개수 설정
         num_bins = self.num_bins_config.get(param_name, 64)
-        
+        min_val, max_val = 0.0, 1.0 # 기본값
+
         if self.effect_name == "reverb":
-            if param_name == "room_size":
-                # 0.1 ~ 10.0 범위 (fined_presets와 일치)
-                min_val, max_val = 0.1, 10.0
-                bin_width = (max_val - min_val) / num_bins
-                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-                final_val = bin_center + offset.squeeze(-1) * bin_width
-                return final_val.clamp(min_val, max_val)
-                
-            elif param_name == "pre_delay":
-                # 0.0 ~ 0.1 범위 (fined_presets 데이터 기준)
-                min_val, max_val = 0.0, 0.1
-                bin_width = (max_val - min_val) / num_bins
-                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-                final_val = bin_center + offset.squeeze(-1) * bin_width
-                return final_val.clamp(min_val, max_val)
-                
-            elif param_name in ["diffusion", "damping", "wet_gain"]:
-                # 0.0 ~ 1.0 범위 (fined_presets와 일치)
-                min_val, max_val = 0.0, 1.0
-                bin_width = (max_val - min_val) / num_bins
-                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-                final_val = bin_center + offset.squeeze(-1) * bin_width
-                return final_val.clamp(min_val, max_val)
-                
-            elif param_name == "decay_time":
-                # 0.1 ~ 10.0 범위 (일반적인 reverb decay time 범위)
-                min_val, max_val = 0.1, 10.0
-                bin_width = (max_val - min_val) / num_bins
-                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-                final_val = bin_center + offset.squeeze(-1) * bin_width
-                return final_val.clamp(min_val, max_val)
+            if param_name == "room_size": min_val, max_val = 0.0, 10.0
+            elif param_name == "pre_delay": min_val, max_val = 0.0, 0.2
+            elif param_name in ["diffusion", "damping", "wet_gain"]: min_val, max_val = 0.0, 1.0
+            elif param_name == "decay_time": min_val, max_val = 0.1, 10.0
                 
         elif self.effect_name == "distortion":
-            if param_name == "gain":
-                # 1.0 ~ 10.0 범위 (선형)
-                min_val, max_val = 1.0, 10.0
-                bin_width = (max_val - min_val) / num_bins
-                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-                final_val = bin_center + offset.squeeze(-1) * bin_width
-                return final_val.clamp(min_val, max_val)
-                
-            elif param_name == "color":
-                # -1.0 ~ 1.0 범위 (선형)
-                min_val, max_val = -1.0, 1.0
-                bin_width = (max_val - min_val) / num_bins
-                bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-                final_val = bin_center + offset.squeeze(-1) * bin_width
-                return final_val.clamp(min_val, max_val)
-                
-        elif self.effect_name == "pitch":
-            if param_name == "scale":
-                # 분류 전용이므로 여기서는 사용되지 않음 (forward에서 직접 매핑)
-                return torch.argmax(class_logits, dim=-1, keepdim=True).float() - 12.0
-        
-        # 기본값 (0.0 ~ 1.0)
-        min_val, max_val = 0.0, 1.0
+            if param_name == "gain": min_val, max_val = 1.0, 10.0
+            elif param_name == "color": min_val, max_val = -1.0, 1.0
+
+        # 2. 모든 빈의 중심값 텐서 생성
+        # shape: (num_bins,)
         bin_width = (max_val - min_val) / num_bins
-        bin_center = min_val + (bin_idx.float() + 0.5) * bin_width
-        final_val = bin_center + offset.squeeze(-1) * bin_width
+        bin_centers = torch.linspace(
+            min_val + bin_width / 2, 
+            max_val - bin_width / 2, 
+            steps=num_bins, 
+            device=class_logits.device
+        )
+
+        # 3. Softmax를 이용한 가중 평균으로 "Soft Argmax" 구현
+        # probs shape: (batch_size, num_bins)
+        probs = torch.softmax(class_logits, dim=-1)
+        
+        # 가중 평균 계산. 결과 shape: (batch_size,)
+        soft_bin_center = torch.sum(probs * bin_centers, dim=-1)
+
+        # 4. 오프셋 적용
+        # offset.squeeze(-1) shape: (batch_size,)
+        final_val = soft_bin_center + offset.squeeze(-1) * bin_width
+        
         return final_val.clamp(min_val, max_val)
     
     def _apply_parameter_constraints(self, param_name: str, raw_value: torch.Tensor) -> torch.Tensor:
@@ -571,17 +581,14 @@ class ParallelPresetDecoder(nn.Module):
         )
         
         # Parallel effect decoders
-        # EQ: 6개의 독립적인 밴드 decoder
-        self.eq_band_decoders = nn.ModuleList([
-            EQBandDecoder(
-                shared_hidden_dim, 
-                decoder_hidden_dim // 2,  # 더 작은 hidden_dim (128)
-                num_decoder_layers - 1,   # 더 간단한 구조 (2 layers)
-                dropout, 
-                band_id=band_id,
-                total_bands=6
-            ) for band_id in range(1, 7)  # 6개 밴드
-        ])
+        # EQ: 통합된 EQ decoder (단조 증가 주파수 보장)
+        self.eq_decoder = UnifiedEQDecoder(
+            shared_hidden_dim, 
+            decoder_hidden_dim,  # 통합 모델이므로 더 큰 hidden_dim
+            num_decoder_layers,  # 더 깊은 구조
+            dropout, 
+            total_bands=6
+        )
         
         # 다른 effect들
         self.reverb_decoder = EffectDecoderBlock(
@@ -590,9 +597,9 @@ class ParallelPresetDecoder(nn.Module):
         self.distortion_decoder = EffectDecoderBlock(
             shared_hidden_dim, decoder_hidden_dim, num_decoder_layers, dropout, "distortion"
         )
-        self.pitch_decoder = EffectDecoderBlock(
-            shared_hidden_dim, decoder_hidden_dim, num_decoder_layers, dropout, "pitch"
-        )
+        # self.pitch_decoder = EffectDecoderBlock(
+        #     shared_hidden_dim, decoder_hidden_dim, num_decoder_layers, dropout, "pitch"
+        # )
         
         # Optional cross-effect attention (for parameter interdependence)
         self.use_cross_attention = True
@@ -603,8 +610,8 @@ class ParallelPresetDecoder(nn.Module):
                 dropout=dropout,
                 batch_first=True
             )
-            # 10개 effect tokens에 대한 positional encoding 추가 (6개 EQ + 3개 다른 effect)
-            self.effect_position_embedding = nn.Parameter(torch.randn(10, shared_hidden_dim) * 0.02)
+            # 4개 effect tokens에 대한 positional encoding 추가 (1개 EQ + 3개 다른 effect)
+            self.effect_position_embedding = nn.Parameter(torch.randn(4, shared_hidden_dim) * 0.02)
     
     def forward(self, text_embedding: torch.Tensor) -> Dict[str, Dict[str, torch.Tensor]]:
         """
@@ -623,8 +630,8 @@ class ParallelPresetDecoder(nn.Module):
         if self.use_cross_attention:
             # Create effect tokens with positional encoding
             batch_size = shared_features.shape[0]
-            # 10개 토큰: 6개 EQ 밴드 + 3개 다른 effect
-            effect_tokens = shared_features.unsqueeze(1).expand(-1, 10, -1)  # (batch_size, 10_effects, dim)
+            # 4개 토큰: 1개 EQ + 3개 다른 effect
+            effect_tokens = shared_features.unsqueeze(1).expand(-1, 4, -1)  # (batch_size, 4_effects, dim)
             
             # Add positional encoding to distinguish different effects/bands
             effect_tokens = effect_tokens + self.effect_position_embedding.unsqueeze(0)
@@ -638,34 +645,29 @@ class ParallelPresetDecoder(nn.Module):
                 effect_tokens, effect_tokens, effect_tokens
             )
             
-            # Split attended features for each effect
-            eq_band_features = [attended_features[:, i, :] for i in range(6)]  # 6개 EQ 밴드
-            reverb_features = attended_features[:, 6, :]  # Reverb
-            dist_features = attended_features[:, 7, :]    # Distortion
-            pitch_features = attended_features[:, 8, :]   # Pitch
+            # Split attended features for each effect  
+            eq_features = attended_features[:, 0, :]      # EQ (통합)
+            reverb_features = attended_features[:, 1, :]  # Reverb
+            dist_features = attended_features[:, 2, :]    # Distortion
+            # pitch_features = attended_features[:, 3, :]   # Pitch
         else:
             # Use same features for all effects with small perturbations
             if self.training:
-                base_noise = torch.randn_like(shared_features) * 0.005
-                eq_band_features = [shared_features + torch.randn_like(shared_features) * 0.005 for _ in range(6)]
+                eq_features = shared_features + torch.randn_like(shared_features) * 0.005
                 reverb_features = shared_features + torch.randn_like(shared_features) * 0.005
                 dist_features = shared_features + torch.randn_like(shared_features) * 0.005  
-                pitch_features = shared_features + torch.randn_like(shared_features) * 0.005
+                # pitch_features = shared_features + torch.randn_like(shared_features) * 0.005
             else:
-                eq_band_features = [shared_features for _ in range(6)]
-                reverb_features = dist_features = pitch_features = shared_features
+                eq_features = reverb_features = dist_features = pitch_features = shared_features
         
         # Parallel decoding
-        # EQ: 6개 밴드 독립적으로 디코딩
-        eq_params = {}
-        for i, eq_band_decoder in enumerate(self.eq_band_decoders):
-            band_params = eq_band_decoder(eq_band_features[i])
-            eq_params.update(band_params)
+        # EQ: 통합 디코더로 모든 밴드 한 번에 디코딩 (단조 증가 보장)
+        eq_params = self.eq_decoder(eq_features)
         
         # 다른 effect들
         reverb_params = self.reverb_decoder(reverb_features)
         distortion_params = self.distortion_decoder(dist_features)
-        pitch_params = self.pitch_decoder(pitch_features)
+        # pitch_params = self.pitch_decoder(pitch_features)
         
         # Format as preset dictionary (exclude pitch from final return)
         if self.output_format == "differentiable":
@@ -1070,22 +1072,34 @@ def recommend_architecture():
 
 
 if __name__ == "__main__":
-    print("🎛️ Text-to-Preset Model Architectures")
-    print("=" * 50)
-    
-    recommend_architecture()
-    
-    print(f"\n🧪 Testing Parallel Decoder...")
-    
-    # Test parallel decoder
-    model = ParallelPresetDecoder(text_embedding_dim=1024)
-    dummy_text_embedding = torch.randn(2, 1024)  # Batch of 2
-    
-    with torch.no_grad():
-        preset = model(dummy_text_embedding)
-    
-    print(f"✅ Model created successfully!")
-    print(f"   Input shape: {dummy_text_embedding.shape}")
-    print(f"   Output effects: {list(preset.keys())}")
-    print(f"   EQ bands: {list(preset['Equalizer'].keys())}")
-    print(f"   Reverb params: {list(preset['Reverb'].keys())}")
+    import traceback
+    try:
+        print('Testing UnifiedEQDecoder...')
+        decoder = UnifiedEQDecoder(input_dim=1024)
+        text_embedding = torch.randn(2, 1024)  # batch_size=2
+
+        output_dict = decoder(text_embedding)
+        print('✓ Forward pass successful')
+        print('\\n--- Output Dictionary Structure ---')
+        for key, value in output_dict.items():
+            print(f"- {key:<28} shape={value.shape}")
+        
+        final_freqs = torch.cat([output_dict[f'band_{i}_freq'] for i in range(1, 7)], dim=1)
+        
+        for i in range(text_embedding.shape[0]):
+            freqs_list = final_freqs[i].tolist()
+            print(f'\\n--- Testing item {i+1} in batch ---')
+            print(f'Frequencies: {[f"{f:.2f}" for f in freqs_list]}')
+            
+            is_monotonic = all(freqs_list[j] <= freqs_list[j+1] for j in range(len(freqs_list) - 1))
+            is_in_range = freqs_list[0] >= 20 and freqs_list[-1] <= 20000
+            print(f'✓ Monotonic increasing: {is_monotonic}')
+            print(f'✓ Within 20-20k Hz range: {is_in_range}')
+
+        loss = final_freqs.sum()
+        loss.backward()
+        print('\n✓ Gradient flow successful')
+
+    except Exception as e:
+        print(f'✗ Error: {e}')
+        traceback.print_exc()

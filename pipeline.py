@@ -805,7 +805,7 @@ class TunedCLAPPipeline(nn.Module):
     def forward(self, 
                 texts: List[str],
                 audio: torch.Tensor,
-                use_real_audio: bool = False) -> Dict[str, torch.Tensor]:
+                use_real_audio: bool = True) -> Dict[str, torch.Tensor]:
         """
         Forward pass through the TunedCLAP pipeline
         
